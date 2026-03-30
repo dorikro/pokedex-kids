@@ -23,7 +23,9 @@ export default function PokemonDetail({ id }: PokemonDetailProps) {
   const [pokemon, setPokemon] = useState<LocalPokemon | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { t } = useTranslation();
+  const [translatedFlavorText, setTranslatedFlavorText] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const { t, language } = useTranslation();
 
   useEffect(() => {
     async function load() {
@@ -40,6 +42,39 @@ export default function PokemonDetail({ id }: PokemonDetailProps) {
 
     load();
   }, [id, t.detail.error]);
+
+  // Translate flavor text when language is not English
+  useEffect(() => {
+    if (!pokemon?.flavor_text || language === "en") {
+      setTranslatedFlavorText(null);
+      return;
+    }
+
+    let cancelled = false;
+    setTranslating(true);
+
+    fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: pokemon.flavor_text, from: "en", to: language }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data.translation) {
+          setTranslatedFlavorText(data.translation);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTranslatedFlavorText(null);
+      })
+      .finally(() => {
+        if (!cancelled) setTranslating(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pokemon?.flavor_text, language]);
 
   if (loading) {
     return (
@@ -140,7 +175,13 @@ export default function PokemonDetail({ id }: PokemonDetailProps) {
           {pokemon.flavor_text && (
             <section>
               <h2 className="text-lg font-semibold text-gray-800 mb-2">{t.detail.pokedexEntry}</h2>
-              <p className="text-gray-600 leading-relaxed">{pokemon.flavor_text}</p>
+              {translating ? (
+                <p className="text-gray-400 text-sm italic">{t.detail.translating}</p>
+              ) : (
+                <p className="text-gray-600 leading-relaxed">
+                  {translatedFlavorText || pokemon.flavor_text}
+                </p>
+              )}
             </section>
           )}
 
