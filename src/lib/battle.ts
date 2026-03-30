@@ -1,6 +1,7 @@
 import { TYPE_EFFECTIVENESS } from "./constants";
 import { LocalPokemon } from "./types";
 import { formatPokemonName } from "./api-client";
+import type { TranslationDictionary } from "./i18n/en";
 
 export interface BattleResult {
   winner: LocalPokemon;
@@ -32,7 +33,7 @@ function getTotalStats(pokemon: LocalPokemon): number {
   return pokemon.stats.reduce((sum, stat) => sum + stat.base_stat, 0);
 }
 
-export function calculateBattle(pokemon1: LocalPokemon, pokemon2: LocalPokemon): BattleResult {
+export function calculateBattle(pokemon1: LocalPokemon, pokemon2: LocalPokemon, t: TranslationDictionary): BattleResult {
   const types1 = pokemon1.types;
   const types2 = pokemon2.types;
 
@@ -63,16 +64,19 @@ export function calculateBattle(pokemon1: LocalPokemon, pokemon2: LocalPokemon):
     return {
       winner: slightWinner,
       loser: slightLoser,
-      reason: `It's a super close match! ${formatPokemonName(slightWinner.name)} barely edges out ${formatPokemonName(slightLoser.name)}.`,
+      reason: t.battleReasons.tieReason(
+        formatPokemonName(slightWinner.name),
+        formatPokemonName(slightLoser.name)
+      ),
       isTie: true,
     };
   }
 
   if (adjustedScore1 > adjustedScore2) {
-    const reason = buildReason(name1, name2, types1, types2, multiplier1vs2, totalStats1, totalStats2);
+    const reason = buildReason(name1, name2, types1, types2, multiplier1vs2, totalStats1, totalStats2, t);
     return { winner: pokemon1, loser: pokemon2, reason, isTie: false };
   } else {
-    const reason = buildReason(name2, name1, types2, types1, multiplier2vs1, totalStats2, totalStats1);
+    const reason = buildReason(name2, name1, types2, types1, multiplier2vs1, totalStats2, totalStats1, t);
     return { winner: pokemon2, loser: pokemon1, reason, isTie: false };
   }
 }
@@ -84,22 +88,23 @@ function buildReason(
   loserTypes: string[],
   typeMultiplier: number,
   winnerStats: number,
-  loserStats: number
+  loserStats: number,
+  t: TranslationDictionary
 ): string {
   const hasTypeAdvantage = typeMultiplier > 1;
   const hasStatsAdvantage = winnerStats > loserStats;
 
   if (hasTypeAdvantage && hasStatsAdvantage) {
-    return `${winnerName} wins! ${winnerTypes.join("/")} is super effective against ${loserName}'s ${loserTypes.join("/")} type, and ${winnerName} has stronger stats too!`;
+    return t.battleReasons.typeAndStats(winnerName, winnerTypes.join("/"), loserName, loserTypes.join("/"));
   }
 
   if (hasTypeAdvantage) {
-    return `${winnerName} wins! ${winnerTypes.join("/")} is super effective against ${loserName}'s ${loserTypes.join("/")} type, which overcomes the stats difference!`;
+    return t.battleReasons.typeOnly(winnerName, winnerTypes.join("/"), loserName, loserTypes.join("/"));
   }
 
   if (hasStatsAdvantage) {
-    return `${winnerName} wins! Its stats are much stronger than ${loserName}'s, even without a type advantage!`;
+    return t.battleReasons.statsOnly(winnerName, loserName);
   }
 
-  return `${winnerName} wins with a slight overall edge over ${loserName}!`;
+  return t.battleReasons.slightEdge(winnerName, loserName);
 }

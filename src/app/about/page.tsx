@@ -1,21 +1,48 @@
-import fs from "fs";
-import path from "path";
-import ReactMarkdown from "react-markdown";
+"use client";
 
-export const metadata = {
-  title: "About | Pokedex Kids",
-  description: "About this project — a kid-friendly Pokemon encyclopedia.",
-};
+import { useTranslation } from "@/lib/i18n/index";
 
 export default function AboutPage() {
-  const readmePath = path.join(process.cwd(), "README.md");
-  const content = fs.readFileSync(readmePath, "utf-8");
+  const { t } = useTranslation();
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <article className="prose prose-gray max-w-none prose-headings:text-gray-800 prose-a:text-red-500 prose-a:no-underline hover:prose-a:underline prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-table:text-sm prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2 prose-img:rounded-lg">
-        <ReactMarkdown>{content}</ReactMarkdown>
-      </article>
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        {/* Header */}
+        <div className="bg-red-50 px-6 py-8 text-center">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">{t.about.welcome}</h1>
+          <p className="text-gray-600 leading-relaxed max-w-xl mx-auto">
+            {t.about.description}
+          </p>
+        </div>
+
+        {/* Features */}
+        <div className="p-6 flex flex-col gap-6">
+          <h2 className="text-xl font-bold text-gray-800">{t.about.whatCanYouDo}</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {t.about.features.map((feature, idx) => (
+              <div
+                key={idx}
+                className="bg-gray-50 rounded-xl p-4 flex flex-col gap-2"
+              >
+                <h3 className="font-semibold text-gray-800">{feature.heading}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed">{feature.text}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Fun fact */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+            <p className="font-semibold text-yellow-800 mb-1">{t.about.funFact}</p>
+            <p className="text-sm text-yellow-700">{t.about.funFactText}</p>
+          </div>
+
+          {/* Footer */}
+          <p className="text-center text-sm text-gray-400 pt-2">
+            {t.about.builtWith}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

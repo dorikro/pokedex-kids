@@ -1,6 +1,7 @@
 "use client";
 
 import { TYPE_COLORS } from "@/lib/constants";
+import { useTranslation } from "@/lib/i18n/index";
 
 interface TypeBadgeProps {
   type: string;
@@ -11,6 +12,9 @@ interface TypeBadgeProps {
 
 export default function TypeBadge({ type, size = "sm", onClick, selected }: TypeBadgeProps) {
   const colors = TYPE_COLORS[type] || { bg: "bg-gray-200", text: "text-gray-800", border: "border-gray-300" };
+  const { t } = useTranslation();
+
+  const displayName = t.types[type] || type;
 
   const sizeClasses = size === "sm" ? "px-2 py-0.5 text-xs" : "px-3 py-1 text-sm";
 
@@ -29,10 +33,10 @@ export default function TypeBadge({ type, size = "sm", onClick, selected }: Type
         className={`${baseClasses} ${interactiveClasses}`}
         type="button"
       >
-        {type}
+        {displayName}
       </button>
     );
   }
 
-  return <span className={baseClasses}>{type}</span>;
+  return <span className={baseClasses}>{displayName}</span>;
 }

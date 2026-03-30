@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { LocalPokemon } from "@/lib/types";
 import { fetchPokemonDetail, formatPokemonName } from "@/lib/api-client";
 import { calculateBattle } from "@/lib/battle";
+import { useTranslation } from "@/lib/i18n/index";
 import TypeBadge from "@/components/TypeBadge";
 
 interface PokemonPickerProps {
@@ -11,9 +12,12 @@ interface PokemonPickerProps {
   pokemon: LocalPokemon | null;
   onSelect: (pokemon: LocalPokemon) => void;
   error: string | null;
+  searchPlaceholder: string;
+  searchNotFound: string;
+  emptyPrompt: string;
 }
 
-function PokemonPicker({ label, pokemon, onSelect, error }: PokemonPickerProps) {
+function PokemonPicker({ label, pokemon, onSelect, error, searchPlaceholder, searchNotFound, emptyPrompt }: PokemonPickerProps) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -34,7 +38,7 @@ function PokemonPicker({ label, pokemon, onSelect, error }: PokemonPickerProps) 
         onSelect(p);
         setSearchError(null);
       } catch {
-        setSearchError("Pokémon not found! Check the name or number.");
+        setSearchError(searchNotFound);
       }
       setLoading(false);
     }, 600);
@@ -49,7 +53,7 @@ function PokemonPicker({ label, pokemon, onSelect, error }: PokemonPickerProps) 
         type="text"
         value={query}
         onChange={(e) => handleSearch(e.target.value)}
-        placeholder="Name or number..."
+        placeholder={searchPlaceholder}
         className="w-full max-w-[220px] px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-800 text-sm text-center focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent placeholder-gray-400"
       />
       {loading && (
@@ -92,7 +96,7 @@ function PokemonPicker({ label, pokemon, onSelect, error }: PokemonPickerProps) 
       {!pokemon && !loading && !searchError && (
         <div className="flex flex-col items-center justify-center w-full max-w-[220px] h-48 bg-white rounded-2xl border-2 border-dashed border-gray-200">
           <p className="text-gray-300 text-4xl mb-2">?</p>
-          <p className="text-gray-400 text-xs">Type a name or number</p>
+          <p className="text-gray-400 text-xs">{emptyPrompt}</p>
         </div>
       )}
     </div>
@@ -104,6 +108,7 @@ export default function BattlePage() {
   const [pokemon2, setPokemon2] = useState<LocalPokemon | null>(null);
   const [result, setResult] = useState<ReturnType<typeof calculateBattle> | null>(null);
   const [battleTriggered, setBattleTriggered] = useState(false);
+  const { t } = useTranslation();
 
   // Reset result when Pokemon change
   useEffect(() => {
@@ -114,7 +119,7 @@ export default function BattlePage() {
   const handleBattle = () => {
     if (!pokemon1 || !pokemon2) return;
     if (pokemon1.id === pokemon2.id) return;
-    const res = calculateBattle(pokemon1, pokemon2);
+    const res = calculateBattle(pokemon1, pokemon2, t);
     setResult(res);
     setBattleTriggered(true);
   };
@@ -125,33 +130,39 @@ export default function BattlePage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Battle!</h1>
-        <p className="text-gray-500 mt-1">Pick two Pokémon and see who wins</p>
+        <h1 className="text-3xl font-bold text-gray-900">{t.battle.title}</h1>
+        <p className="text-gray-500 mt-1">{t.battle.subtitle}</p>
       </div>
 
       {/* Pickers */}
       <div className="flex flex-col sm:flex-row gap-6 items-start justify-center mb-8">
         <PokemonPicker
-          label="Pokémon 1"
+          label={t.battle.pokemon1}
           pokemon={pokemon1}
           onSelect={setPokemon1}
           error={null}
+          searchPlaceholder={t.battle.searchPlaceholder}
+          searchNotFound={t.battle.searchNotFound}
+          emptyPrompt={t.battle.typeNameOrNumber}
         />
         <div className="flex items-center justify-center self-center text-3xl font-bold text-gray-300 py-4">
-          VS
+          {t.battle.vs}
         </div>
         <PokemonPicker
-          label="Pokémon 2"
+          label={t.battle.pokemon2}
           pokemon={pokemon2}
           onSelect={setPokemon2}
           error={null}
+          searchPlaceholder={t.battle.searchPlaceholder}
+          searchNotFound={t.battle.searchNotFound}
+          emptyPrompt={t.battle.typeNameOrNumber}
         />
       </div>
 
       {/* Same pokemon warning */}
       {samePokemon && (
         <p className="text-center text-sm text-amber-600 mb-4">
-          Pick two different Pokémon to battle!
+          {t.battle.samePokemon}
         </p>
       )}
 
@@ -167,7 +178,7 @@ export default function BattlePage() {
           }`}
           type="button"
         >
-          Fight!
+          {t.battle.fight}
         </button>
       </div>
 
@@ -187,10 +198,10 @@ export default function BattlePage() {
             )}
             <div>
               {result.isTie ? (
-                <p className="text-xl font-bold text-amber-500">Close Match!</p>
+                <p className="text-xl font-bold text-amber-500">{t.battle.closeMatch}</p>
               ) : (
                 <p className="text-xl font-bold text-green-600">
-                  {formatPokemonName(result.winner.name)} Wins!
+                  {t.battle.wins(formatPokemonName(result.winner.name))}
                 </p>
               )}
             </div>

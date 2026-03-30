@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { PokemonCardData } from "@/lib/types";
 import { fetchPokemonList } from "@/lib/api-client";
+import { useTranslation } from "@/lib/i18n/index";
 import PokemonCard from "@/components/PokemonCard";
 import SearchBox from "@/components/SearchBox";
 import GenerationTabs from "@/components/GenerationTabs";
@@ -22,6 +23,7 @@ export default function Home() {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
+  const { t } = useTranslation();
 
   // Load a batch of Pokemon from our API
   const loadBatch = useCallback(
@@ -124,7 +126,7 @@ export default function Home() {
         <div className="flex justify-center py-20">
           <div className="flex flex-col items-center gap-3">
             <div className="w-10 h-10 border-4 border-red-200 border-t-red-500 rounded-full animate-spin" />
-            <p className="text-gray-500 text-sm">Loading Pokémon...</p>
+            <p className="text-gray-500 text-sm">{t.home.loading}</p>
           </div>
         </div>
       )}
@@ -132,7 +134,7 @@ export default function Home() {
       {/* Empty state */}
       {!loading && allPokemon.length === 0 && (
         <div className="flex justify-center py-20">
-          <p className="text-gray-400 text-lg">No Pokémon found. Try a different search!</p>
+          <p className="text-gray-400 text-lg">{t.home.empty}</p>
         </div>
       )}
 
@@ -163,7 +165,7 @@ export default function Home() {
             className="px-6 py-2 bg-red-500 text-white rounded-full text-sm font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
             type="button"
           >
-            {loadingMore ? "Loading..." : "Load More"}
+            {loadingMore ? t.home.loadingMore : t.home.loadMore}
           </button>
         </div>
       )}

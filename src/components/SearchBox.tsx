@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { useTranslation } from "@/lib/i18n/index";
 
 interface SearchBoxProps {
   value: string;
@@ -8,8 +9,11 @@ interface SearchBoxProps {
   placeholder?: string;
 }
 
-export default function SearchBox({ value, onChange, placeholder = "Search by name or number..." }: SearchBoxProps) {
+export default function SearchBox({ value, onChange, placeholder }: SearchBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
+
+  const resolvedPlaceholder = placeholder || t.search.placeholder;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -25,7 +29,7 @@ export default function SearchBox({ value, onChange, placeholder = "Search by na
   return (
     <div className="relative w-full max-w-md">
       <svg
-        className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+        className="absolute start-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -42,13 +46,13 @@ export default function SearchBox({ value, onChange, placeholder = "Search by na
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent placeholder-gray-400"
+        placeholder={resolvedPlaceholder}
+        className="w-full ps-10 pe-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent placeholder-gray-400"
       />
       {value && (
         <button
           onClick={() => onChange("")}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          className="absolute end-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
           type="button"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
