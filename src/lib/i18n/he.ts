@@ -84,8 +84,6 @@ export const he: TranslationDictionary = {
     hidden: "מוסתר",
     evolution: "אבולוציה",
     officialArtwork: "איור רשמי",
-    translating: "...מתרגם",
-    translationFailed: "התרגום לא זמין",
   },
 
   // ─── Stat names ───────────────────────────────────────────────────

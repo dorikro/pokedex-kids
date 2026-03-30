@@ -56,8 +56,6 @@ export interface TranslationDictionary {
     hidden: string;
     evolution: string;
     officialArtwork: string;
-    translating: string;
-    translationFailed: string;
   };
   stats: Record<string, string>;
   battle: {
@@ -191,8 +189,6 @@ export const en: TranslationDictionary = {
     hidden: "Hidden",
     evolution: "Evolution",
     officialArtwork: "Official Artwork",
-    translating: "Translating...",
-    translationFailed: "Translation unavailable",
   },
 
   // ─── Stat names ───────────────────────────────────────────────────
