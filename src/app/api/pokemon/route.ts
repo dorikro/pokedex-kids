@@ -1,0 +1,37 @@
+import type { NextRequest } from "next/server";
+import { queryPokemon } from "@/lib/pokemon-db";
+
+/**
+ * GET /api/pokemon?offset=0&limit=36&search=pika&types=fire,water&generation=1
+ *
+ * Returns a paginated list of Pokemon with optional search, type, and generation filters.
+ */
+export async function GET(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+
+  const offset = parseInt(params.get("offset") ?? "0", 10);
+  const limit = parseInt(params.get("limit") ?? "36", 10);
+  const search = params.get("search") ?? undefined;
+  const typesParam = params.get("types");
+  const types = typesParam ? typesParam.split(",").filter(Boolean) : undefined;
+  const genParam = params.get("generation");
+  const generation = genParam ? parseInt(genParam, 10) : null;
+
+  const result = queryPokemon({ offset, limit, search, types, generation });
+
+  // Return only card-level data for the list (lighter payload)
+  const pokemon = result.pokemon.map((p) => ({
+    id: p.id,
+    name: p.name,
+    sprite: p.sprite,
+    types: p.types,
+  }));
+
+  return Response.json({
+    pokemon,
+    total: result.total,
+    offset,
+    limit,
+    hasMore: result.hasMore,
+  });
+}
