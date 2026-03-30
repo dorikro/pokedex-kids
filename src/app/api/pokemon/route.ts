@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { queryPokemon } from "@/lib/pokemon-db";
 
+const MAX_LIMIT = 100;
+
 /**
  * GET /api/pokemon?offset=0&limit=36&search=pika&types=fire,water&generation=1
  *
@@ -9,8 +11,13 @@ import { queryPokemon } from "@/lib/pokemon-db";
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
 
-  const offset = parseInt(params.get("offset") ?? "0", 10);
-  const limit = parseInt(params.get("limit") ?? "36", 10);
+  const rawOffset = parseInt(params.get("offset") ?? "0", 10);
+  const rawLimit = parseInt(params.get("limit") ?? "36", 10);
+  const offset = Math.max(Number.isFinite(rawOffset) ? rawOffset : 0, 0);
+  const limit = Math.min(
+    Math.max(Number.isFinite(rawLimit) ? rawLimit : 36, 1),
+    MAX_LIMIT
+  );
   const search = params.get("search") ?? undefined;
   const typesParam = params.get("types");
   const types = typesParam ? typesParam.split(",").filter(Boolean) : undefined;

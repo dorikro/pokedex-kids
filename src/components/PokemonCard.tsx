@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { PokemonCardData } from "@/lib/types";
-import { formatPokemonName } from "@/lib/pokeapi";
+import { formatPokemonName } from "@/lib/api-client";
 import TypeBadge from "./TypeBadge";
 
 interface PokemonCardProps {
