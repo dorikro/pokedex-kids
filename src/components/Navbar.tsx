@@ -9,6 +9,7 @@ export default function Navbar() {
   const links = [
     { href: "/", label: "Browse" },
     { href: "/battle", label: "Battle" },
+    { href: "/about", label: "About" },
   ];
 
   return (

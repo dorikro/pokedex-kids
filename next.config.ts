@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   // Ensure the Pokemon data JSON is included in the standalone output
   outputFileTracingIncludes: {
     "/api/*": ["data/**/*"],
+    "/about": ["README.md"],
   },
   async headers() {
     return [
