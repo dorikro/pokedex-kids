@@ -9,6 +9,7 @@ export interface TranslationDictionary {
   nav: {
     browse: string;
     battle: string;
+    stats: string;
     about: string;
     brand: string;
     brandSuffix: string;
@@ -114,6 +115,22 @@ export interface TranslationDictionary {
     he: string;
     switchLabel: string;
   };
+  statsExplorer: {
+    title: string;
+    subtitle: string;
+    sortBy: string;
+    sortOrder: string;
+    highest: string;
+    lowest: string;
+    statRanges: string;
+    total: string;
+    min: string;
+    max: string;
+    results: (count: number, total: number) => string;
+    noResults: string;
+    rank: string;
+    reset: string;
+  };
 }
 
 export const en: TranslationDictionary = {
@@ -121,6 +138,7 @@ export const en: TranslationDictionary = {
   nav: {
     browse: "Browse",
     battle: "Battle",
+    stats: "Stats",
     about: "About",
     brand: "Pokédex",
     brandSuffix: "Kids",
@@ -302,5 +320,24 @@ export const en: TranslationDictionary = {
     en: "EN",
     he: "HE",
     switchLabel: "Language",
+  },
+
+  // ─── Stats Explorer page ─────────────────────────────────────────
+  statsExplorer: {
+    title: "Stats Explorer",
+    subtitle: "Find Pokémon by their stats",
+    sortBy: "Sort by",
+    sortOrder: "Order",
+    highest: "Highest first",
+    lowest: "Lowest first",
+    statRanges: "Stat Ranges",
+    total: "Total",
+    min: "Min",
+    max: "Max",
+    results: (count: number, total: number) =>
+      `Showing ${count} of ${total} Pokémon`,
+    noResults: "No Pokémon match these filters. Try widening the ranges!",
+    rank: "#",
+    reset: "Reset",
   },
 };

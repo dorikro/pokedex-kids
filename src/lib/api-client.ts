@@ -4,6 +4,12 @@ import { PokemonCardData, LocalPokemon, PokemonListApiResponse } from "./types";
  * Client-side API functions that call our own API routes instead of PokeAPI.
  */
 
+export interface StatFilterParam {
+  name: string;
+  min?: number;
+  max?: number;
+}
+
 /**
  * Fetch a paginated list of Pokemon with optional filters.
  */
@@ -13,6 +19,10 @@ export async function fetchPokemonList(options: {
   search?: string;
   types?: string[];
   generation?: number | null;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+  statFilters?: StatFilterParam[];
+  includeStats?: boolean;
 }): Promise<PokemonListApiResponse> {
   const params = new URLSearchParams();
 
@@ -23,6 +33,15 @@ export async function fetchPokemonList(options: {
     params.set("types", options.types.join(","));
   }
   if (options.generation) params.set("generation", String(options.generation));
+  if (options.sortBy) params.set("sortBy", options.sortBy);
+  if (options.sortOrder) params.set("sortOrder", options.sortOrder);
+  if (options.statFilters && options.statFilters.length > 0) {
+    const encoded = options.statFilters
+      .map((sf) => `${sf.name}:${sf.min ?? ""}:${sf.max ?? ""}`)
+      .join(",");
+    params.set("statFilter", encoded);
+  }
+  if (options.includeStats) params.set("includeStats", "1");
 
   const res = await fetch(`/api/pokemon?${params.toString()}`);
   if (!res.ok) throw new Error(`API error: ${res.status}`);

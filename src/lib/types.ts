@@ -121,6 +121,7 @@ export interface PokemonCardData {
   name: string;
   sprite: string | null;
   types: string[];
+  stats?: { name: string; base_stat: number }[];
 }
 
 // Evolution chain display

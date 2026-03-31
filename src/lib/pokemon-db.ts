@@ -36,6 +36,23 @@ function getByName(): Map<string, LocalPokemon> {
   return _pokemonByName!;
 }
 
+// Valid stat names for sorting/filtering
+const VALID_STATS = ["hp", "attack", "defense", "special-attack", "special-defense", "speed", "total"];
+
+// Helper: get a stat value from a pokemon (supports "total" as a virtual stat)
+function getStatValue(p: LocalPokemon, statName: string): number {
+  if (statName === "total") {
+    return p.stats.reduce((sum, s) => sum + s.base_stat, 0);
+  }
+  return p.stats.find((s) => s.name === statName)?.base_stat ?? 0;
+}
+
+export interface StatFilter {
+  name: string;  // stat name (e.g. "hp", "speed", "total")
+  min?: number;
+  max?: number;
+}
+
 /**
  * Get a paginated, filtered list of Pokemon.
  */
@@ -45,8 +62,11 @@ export function queryPokemon(options: {
   search?: string;
   types?: string[];
   generation?: number | null;
+  statFilters?: StatFilter[];
+  sortBy?: string;       // stat name to sort by
+  sortOrder?: "asc" | "desc";
 }): { pokemon: LocalPokemon[]; total: number; hasMore: boolean } {
-  const { offset = 0, limit = 36, search, types, generation } = options;
+  const { offset = 0, limit = 36, search, types, generation, statFilters, sortBy, sortOrder = "desc" } = options;
   let data = loadData();
 
   // Filter by generation (ID range)
@@ -74,6 +94,29 @@ export function queryPokemon(options: {
     data = data.filter((p) =>
       types.some((type) => p.types.includes(type))
     );
+  }
+
+  // Filter by stat ranges
+  if (statFilters && statFilters.length > 0) {
+    for (const sf of statFilters) {
+      if (!VALID_STATS.includes(sf.name)) continue;
+      data = data.filter((p) => {
+        const val = getStatValue(p, sf.name);
+        if (sf.min !== undefined && val < sf.min) return false;
+        if (sf.max !== undefined && val > sf.max) return false;
+        return true;
+      });
+    }
+  }
+
+  // Sort by stat
+  if (sortBy && VALID_STATS.includes(sortBy)) {
+    const dir = sortOrder === "asc" ? 1 : -1;
+    data = [...data].sort((a, b) => {
+      const va = getStatValue(a, sortBy);
+      const vb = getStatValue(b, sortBy);
+      return (va - vb) * dir;
+    });
   }
 
   const total = data.length;

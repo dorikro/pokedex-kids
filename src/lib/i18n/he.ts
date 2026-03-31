@@ -6,6 +6,7 @@ export const he: TranslationDictionary = {
   nav: {
     browse: "עיון",
     battle: "קרב",
+    stats: "סטטיסטיקות",
     about: "אודות",
     brand: "Pokédex",
     brandSuffix: "ילדים",
@@ -187,5 +188,24 @@ export const he: TranslationDictionary = {
     en: "EN",
     he: "HE",
     switchLabel: "שפה",
+  },
+
+  // ─── Stats Explorer page ─────────────────────────────────────────
+  statsExplorer: {
+    title: "סייר סטטיסטיקות",
+    subtitle: "מצאו פוקימונים לפי הסטטיסטיקות שלהם",
+    sortBy: "מיין לפי",
+    sortOrder: "סדר",
+    highest: "הגבוה ביותר",
+    lowest: "הנמוך ביותר",
+    statRanges: "טווחי סטטיסטיקות",
+    total: "סה״כ",
+    min: "מינימום",
+    max: "מקסימום",
+    results: (count: number, total: number) =>
+      `מציג ${count} מתוך ${total} פוקימונים`,
+    noResults: "אין פוקימונים שמתאימים למסננים. נסו להרחיב את הטווחים!",
+    rank: "#",
+    reset: "איפוס",
   },
 };
