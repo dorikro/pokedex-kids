@@ -71,6 +71,16 @@ export interface TranslationDictionary {
     samePokemon: string;
     closeMatch: string;
     wins: (name: string) => string;
+    totalStats: string;
+    typeEffectiveness: string;
+    adjustedScore: string;
+    superEffective: string;
+    notVeryEffective: string;
+    noEffect: string;
+    neutral: string;
+    statComparison: string;
+    breakdown: string;
+    winsStatCount: (name: string, count: number, total: number) => string;
   };
   battleReasons: {
     tieReason: (winner: string, loser: string) => string;
@@ -215,6 +225,17 @@ export const en: TranslationDictionary = {
     samePokemon: "Pick two different Pokémon to battle!",
     closeMatch: "Close Match!",
     wins: (name: string) => `${name} Wins!`,
+    totalStats: "Total Stats",
+    typeEffectiveness: "Type Effectiveness",
+    adjustedScore: "Adjusted Score",
+    superEffective: "Super effective",
+    notVeryEffective: "Not very effective",
+    noEffect: "No effect",
+    neutral: "Neutral",
+    statComparison: "Stat Comparison",
+    breakdown: "Battle Breakdown",
+    winsStatCount: (name: string, count: number, total: number) =>
+      `${name} wins ${count} of ${total} stats`,
   },
 
   // ─── Battle reasons ───────────────────────────────────────────────

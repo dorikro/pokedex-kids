@@ -110,6 +110,17 @@ export const he: TranslationDictionary = {
     samePokemon: "בחרו שני פוקימונים שונים לקרב!",
     closeMatch: "קרב צמוד!",
     wins: (name: string) => `${name} מנצח!`,
+    totalStats: "סה״כ סטטיסטיקות",
+    typeEffectiveness: "יעילות סוג",
+    adjustedScore: "ניקוד מותאם",
+    superEffective: "אפקטיבי במיוחד",
+    notVeryEffective: "לא כל כך אפקטיבי",
+    noEffect: "ללא השפעה",
+    neutral: "נייטרלי",
+    statComparison: "השוואת סטטיסטיקות",
+    breakdown: "פירוט הקרב",
+    winsStatCount: (name: string, count: number, total: number) =>
+      `${name} מנצח ב-${count} מתוך ${total} סטטיסטיקות`,
   },
 
   // ─── Battle reasons ───────────────────────────────────────────────

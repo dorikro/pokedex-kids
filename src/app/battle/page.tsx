@@ -3,9 +3,45 @@
 import { useState, useEffect, useRef } from "react";
 import { LocalPokemon } from "@/lib/types";
 import { fetchPokemonDetail, formatPokemonName } from "@/lib/api-client";
-import { calculateBattle } from "@/lib/battle";
+import { calculateBattle, BattleResult } from "@/lib/battle";
 import { useTranslation } from "@/lib/i18n/index";
+import { STAT_COLORS } from "@/lib/constants";
 import TypeBadge from "@/components/TypeBadge";
+
+/* ─── Mini stat bars shown inside each picker card ──────────────── */
+
+function MiniStatBars({ pokemon }: { pokemon: LocalPokemon }) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="w-full flex flex-col gap-1 mt-2">
+      {pokemon.stats.map((stat) => {
+        const pct = Math.min((stat.base_stat / 255) * 100, 100);
+        const color = STAT_COLORS[stat.name] || "bg-gray-400";
+        const label = t.stats[stat.name] || stat.name;
+
+        return (
+          <div key={stat.name} className="flex items-center gap-1.5">
+            <span className="text-[10px] text-gray-500 w-12 text-end truncate">
+              {label}
+            </span>
+            <span className="text-[10px] font-semibold text-gray-700 w-6 text-end">
+              {stat.base_stat}
+            </span>
+            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${color}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── Pokemon picker ────────────────────────────────────────────── */
 
 interface PokemonPickerProps {
   label: string;
@@ -17,7 +53,15 @@ interface PokemonPickerProps {
   emptyPrompt: string;
 }
 
-function PokemonPicker({ label, pokemon, onSelect, error, searchPlaceholder, searchNotFound, emptyPrompt }: PokemonPickerProps) {
+function PokemonPicker({
+  label,
+  pokemon,
+  onSelect,
+  error,
+  searchPlaceholder,
+  searchNotFound,
+  emptyPrompt,
+}: PokemonPickerProps) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -91,6 +135,8 @@ function PokemonPicker({ label, pokemon, onSelect, error, searchPlaceholder, sea
               <TypeBadge key={type} type={type} />
             ))}
           </div>
+          {/* Mini stat bars */}
+          <MiniStatBars pokemon={pokemon} />
         </div>
       )}
       {!pokemon && !loading && !searchError && (
@@ -103,10 +149,267 @@ function PokemonPicker({ label, pokemon, onSelect, error, searchPlaceholder, sea
   );
 }
 
+/* ─── Type effectiveness label ──────────────────────────────────── */
+
+function EffectivenessLabel({
+  multiplier,
+  t,
+}: {
+  multiplier: number;
+  t: ReturnType<typeof useTranslation>["t"];
+}) {
+  if (multiplier === 0) {
+    return (
+      <span className="text-sm font-semibold text-gray-400">
+        {t.battle.noEffect} (0x)
+      </span>
+    );
+  }
+  if (multiplier > 1) {
+    return (
+      <span className="text-sm font-semibold text-green-600">
+        {t.battle.superEffective} ({multiplier}x)
+      </span>
+    );
+  }
+  if (multiplier < 1) {
+    return (
+      <span className="text-sm font-semibold text-red-500">
+        {t.battle.notVeryEffective} ({multiplier}x)
+      </span>
+    );
+  }
+  return (
+    <span className="text-sm font-semibold text-gray-500">
+      {t.battle.neutral} (1x)
+    </span>
+  );
+}
+
+/* ─── Side-by-side stat comparison bar ──────────────────────────── */
+
+function StatComparisonRow({
+  statName,
+  value1,
+  value2,
+  translatedName,
+}: {
+  statName: string;
+  value1: number;
+  value2: number;
+  translatedName: string;
+}) {
+  const max = Math.max(value1, value2, 1);
+  const pct1 = (value1 / max) * 100;
+  const pct2 = (value2 / max) * 100;
+  const color = STAT_COLORS[statName] || "bg-gray-400";
+
+  const winner = value1 > value2 ? 1 : value2 > value1 ? 2 : 0;
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Pokemon 1 value */}
+      <span
+        className={`text-xs font-bold w-8 text-end ${
+          winner === 1 ? "text-green-600" : winner === 2 ? "text-red-500" : "text-gray-600"
+        }`}
+      >
+        {value1}
+      </span>
+
+      {/* Pokemon 1 bar (right-aligned, grows left) */}
+      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden flex justify-end">
+        <div
+          className={`h-full rounded-full ${color} ${
+            winner === 1 ? "opacity-100" : "opacity-50"
+          }`}
+          style={{ width: `${pct1}%` }}
+        />
+      </div>
+
+      {/* Stat label */}
+      <span className="text-[11px] font-medium text-gray-600 w-14 text-center shrink-0">
+        {translatedName}
+      </span>
+
+      {/* Pokemon 2 bar (left-aligned, grows right) */}
+      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${color} ${
+            winner === 2 ? "opacity-100" : "opacity-50"
+          }`}
+          style={{ width: `${pct2}%` }}
+        />
+      </div>
+
+      {/* Pokemon 2 value */}
+      <span
+        className={`text-xs font-bold w-8 ${
+          winner === 2 ? "text-green-600" : winner === 1 ? "text-red-500" : "text-gray-600"
+        }`}
+      >
+        {value2}
+      </span>
+    </div>
+  );
+}
+
+/* ─── Detailed battle breakdown ─────────────────────────────────── */
+
+function BattleBreakdownSection({ result }: { result: BattleResult }) {
+  const { t } = useTranslation();
+  const { breakdown, pokemon1, pokemon2 } = result;
+  const name1 = formatPokemonName(pokemon1.name);
+  const name2 = formatPokemonName(pokemon2.name);
+
+  return (
+    <div className="mt-6 bg-gray-50 rounded-2xl border border-gray-200 p-5 space-y-6">
+      <h3 className="text-lg font-bold text-gray-800 text-center">
+        {t.battle.breakdown}
+      </h3>
+
+      {/* ── Stat comparison ───────────────────────────────── */}
+      <div>
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
+          {t.battle.statComparison}
+        </h4>
+
+        {/* Names header */}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-bold text-gray-700 w-8 text-end">&nbsp;</span>
+          <div className="flex-1 text-end">
+            <span className="text-xs font-semibold text-gray-600">{name1}</span>
+          </div>
+          <span className="w-14 text-center shrink-0">&nbsp;</span>
+          <div className="flex-1">
+            <span className="text-xs font-semibold text-gray-600">{name2}</span>
+          </div>
+          <span className="text-xs font-bold text-gray-700 w-8">&nbsp;</span>
+        </div>
+
+        <div className="space-y-1.5">
+          {breakdown.statComparisons.map((sc) => (
+            <StatComparisonRow
+              key={sc.name}
+              statName={sc.name}
+              value1={sc.stat1}
+              value2={sc.stat2}
+              translatedName={t.stats[sc.name] || sc.name}
+            />
+          ))}
+        </div>
+
+        {/* Stats won summary */}
+        <div className="flex justify-between mt-3 text-xs text-gray-500">
+          <span>{t.battle.winsStatCount(name1, breakdown.statsWon1, 6)}</span>
+          <span>{t.battle.winsStatCount(name2, breakdown.statsWon2, 6)}</span>
+        </div>
+      </div>
+
+      {/* ── Totals & type effectiveness ───────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Total stats */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
+            {t.battle.totalStats}
+          </h4>
+          <div className="flex justify-between items-end">
+            <div className="text-center flex-1">
+              <p className="text-xs text-gray-500 mb-1">{name1}</p>
+              <p
+                className={`text-2xl font-bold ${
+                  breakdown.totalStats1 >= breakdown.totalStats2
+                    ? "text-green-600"
+                    : "text-gray-400"
+                }`}
+              >
+                {breakdown.totalStats1}
+              </p>
+            </div>
+            <span className="text-gray-300 text-lg font-bold px-2">vs</span>
+            <div className="text-center flex-1">
+              <p className="text-xs text-gray-500 mb-1">{name2}</p>
+              <p
+                className={`text-2xl font-bold ${
+                  breakdown.totalStats2 >= breakdown.totalStats1
+                    ? "text-green-600"
+                    : "text-gray-400"
+                }`}
+              >
+                {breakdown.totalStats2}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Type effectiveness */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
+            {t.battle.typeEffectiveness}
+          </h4>
+          <div className="flex justify-between items-start">
+            <div className="text-center flex-1">
+              <p className="text-xs text-gray-500 mb-1">
+                {name1} vs {name2}
+              </p>
+              <EffectivenessLabel multiplier={breakdown.typeMultiplier1vs2} t={t} />
+            </div>
+            <div className="text-center flex-1">
+              <p className="text-xs text-gray-500 mb-1">
+                {name2} vs {name1}
+              </p>
+              <EffectivenessLabel multiplier={breakdown.typeMultiplier2vs1} t={t} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Adjusted scores ───────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
+          {t.battle.adjustedScore}
+        </h4>
+        <p className="text-[11px] text-gray-400 text-center mb-3">
+          {t.battle.totalStats} x {t.battle.typeEffectiveness}
+        </p>
+        <div className="flex justify-between items-end">
+          <div className="text-center flex-1">
+            <p className="text-xs text-gray-500 mb-1">{name1}</p>
+            <p
+              className={`text-2xl font-bold ${
+                breakdown.adjustedScore1 >= breakdown.adjustedScore2
+                  ? "text-green-600"
+                  : "text-gray-400"
+              }`}
+            >
+              {breakdown.adjustedScore1}
+            </p>
+          </div>
+          <span className="text-gray-300 text-lg font-bold px-2">vs</span>
+          <div className="text-center flex-1">
+            <p className="text-xs text-gray-500 mb-1">{name2}</p>
+            <p
+              className={`text-2xl font-bold ${
+                breakdown.adjustedScore2 >= breakdown.adjustedScore1
+                  ? "text-green-600"
+                  : "text-gray-400"
+              }`}
+            >
+              {breakdown.adjustedScore2}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main battle page ──────────────────────────────────────────── */
+
 export default function BattlePage() {
   const [pokemon1, setPokemon1] = useState<LocalPokemon | null>(null);
   const [pokemon2, setPokemon2] = useState<LocalPokemon | null>(null);
-  const [result, setResult] = useState<ReturnType<typeof calculateBattle> | null>(null);
+  const [result, setResult] = useState<BattleResult | null>(null);
   const [battleTriggered, setBattleTriggered] = useState(false);
   const { t } = useTranslation();
 
@@ -184,32 +487,40 @@ export default function BattlePage() {
 
       {/* Result */}
       {result && battleTriggered && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center animate-fade-in">
-          <div className="flex items-center justify-center gap-4 mb-4">
-            {/* Winner sprite */}
-            {result.winner.sprite && (
-              <img
-                src={result.winner.sprite}
-                alt={result.winner.name}
-                width={96}
-                height={96}
-                className="w-24 h-24 image-rendering-pixelated"
-              />
-            )}
-            <div>
-              {result.isTie ? (
-                <p className="text-xl font-bold text-amber-500">{t.battle.closeMatch}</p>
-              ) : (
-                <p className="text-xl font-bold text-green-600">
-                  {t.battle.wins(formatPokemonName(result.winner.name))}
-                </p>
+        <>
+          {/* Winner announcement */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center animate-fade-in">
+            <div className="flex items-center justify-center gap-4 mb-4">
+              {/* Winner sprite */}
+              {result.winner.sprite && (
+                <img
+                  src={result.winner.sprite}
+                  alt={result.winner.name}
+                  width={96}
+                  height={96}
+                  className="w-24 h-24 image-rendering-pixelated"
+                />
               )}
+              <div>
+                {result.isTie ? (
+                  <p className="text-xl font-bold text-amber-500">
+                    {t.battle.closeMatch}
+                  </p>
+                ) : (
+                  <p className="text-xl font-bold text-green-600">
+                    {t.battle.wins(formatPokemonName(result.winner.name))}
+                  </p>
+                )}
+              </div>
             </div>
+            <p className="text-gray-600 leading-relaxed max-w-md mx-auto">
+              {result.reason}
+            </p>
           </div>
-          <p className="text-gray-600 leading-relaxed max-w-md mx-auto">
-            {result.reason}
-          </p>
-        </div>
+
+          {/* Detailed breakdown */}
+          <BattleBreakdownSection result={result} />
+        </>
       )}
     </div>
   );
