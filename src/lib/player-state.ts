@@ -10,11 +10,12 @@ import type { OwnedPokemon, PlayerState } from "./types";
 import type { LocalPokemon } from "./types";
 import { DEFAULT_AREA_ID } from "./areas";
 import { TYPE_EFFECTIVENESS } from "./constants";
+import { STATUS_MOVE_DATA } from "./status-moves";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "pokedex-kids-player";
-const SAVE_VERSION = 4;   // bumped: healAll + PP persistence
+const SAVE_VERSION = 5;   // v0.2.4: status conditions, new areas, gym badges
 const MAX_PARTY_SIZE = 6;
 const STARTER_POKEBALLS = 10;
 const STARTER_MONEY = 500;
@@ -285,6 +286,8 @@ export function createOwnedPokemon(
     xpToNextLevel: xpForLevel(level + 1),
     currentHp: maxHp,
     maxHp,
+    statusCondition: null,
+    statusTurnsLeft: 0,
     stats,
     moves: generateMoves(species, level),
     species: {
@@ -325,8 +328,9 @@ export function applyRealMoves(
     power: m.power,
     pp: m.pp,
     damageClass: m.damageClass as "physical" | "special" | "status",
-    // Preserve PP if this move was already known; otherwise give full PP
     currentPp: existingPpById[m.id] !== undefined ? existingPpById[m.id] : m.pp,
+    ailment: STATUS_MOVE_DATA[m.id]?.ailment ?? null,
+    ailmentChance: STATUS_MOVE_DATA[m.id]?.ailmentChance ?? 0,
   }));
   return { ...pokemon, moves };
 }
@@ -410,6 +414,8 @@ function defaultState(): PlayerState {
     seen: [],
     caught: [],
     defeatedTrainers: [],
+    defeatedTrainerIds: [],
+    defeatedGymLeaders: [],
     currentAreaId: DEFAULT_AREA_ID,
     lastPokeballRegen: new Date().toISOString(),
     lastSaved: new Date().toISOString(),
@@ -477,6 +483,21 @@ function load(): PlayerState {
     // ── Migration: v3 → v4 (no data change, just version bump) ──
     if (parsed.saveVersion < 4) {
       parsed.saveVersion = 4;
+    }
+
+    // ── Migration: v4 → v5 (defeatedTrainerIds, defeatedGymLeaders, status on Pokémon) ──
+    if (parsed.saveVersion < 5) {
+      parsed.defeatedTrainerIds = parsed.defeatedTrainerIds ?? [...(parsed.defeatedTrainers ?? [])];
+      parsed.defeatedGymLeaders = parsed.defeatedGymLeaders ?? [];
+      // Ensure all Pokémon have status fields
+      const normPokemon = (p: OwnedPokemon): OwnedPokemon => ({
+        ...p,
+        statusCondition: p.statusCondition ?? null,
+        statusTurnsLeft: p.statusTurnsLeft ?? 0,
+      });
+      parsed.party = (parsed.party ?? []).map(normPokemon);
+      parsed.box   = (parsed.box   ?? []).map(normPokemon);
+      parsed.saveVersion = 5;
     }
 
     // ── Passive regen check on every load ───────────────────────
@@ -678,14 +699,35 @@ export const playerState = {
     return state.inventory.find((s) => s.itemId === itemId)?.quantity ?? 0;
   },
 
-  // ─── Trainers ───────────────────────────────────────────────────
+  // ─── Trainers & Badges ──────────────────────────────────────────
 
-  /** Mark a trainer as defeated. */
+  /** Mark a trainer as defeated (daily list + permanent list). */
   defeatTrainer(state: PlayerState, trainerId: string): PlayerState {
-    if (state.defeatedTrainers.includes(trainerId)) return state;
+    const dailyAlready = state.defeatedTrainers.includes(trainerId);
+    const permAlready  = (state.defeatedTrainerIds ?? []).includes(trainerId);
+    if (dailyAlready && permAlready) return state;
     const next: PlayerState = {
       ...state,
-      defeatedTrainers: [...state.defeatedTrainers, trainerId],
+      defeatedTrainers:   dailyAlready ? state.defeatedTrainers : [...state.defeatedTrainers, trainerId],
+      defeatedTrainerIds: permAlready  ? (state.defeatedTrainerIds ?? []) : [...(state.defeatedTrainerIds ?? []), trainerId],
+    };
+    save(next);
+    return next;
+  },
+
+  /**
+   * Award a gym badge after defeating a Gym Leader for the first time.
+   * No-ops if the badge was already earned.
+   */
+  awardBadge(state: PlayerState, gymLeaderId: string): PlayerState {
+    if ((state.defeatedGymLeaders ?? []).includes(gymLeaderId)) return state;
+    const next: PlayerState = {
+      ...state,
+      badges: state.badges + 1,
+      defeatedGymLeaders: [...(state.defeatedGymLeaders ?? []), gymLeaderId],
+      defeatedTrainerIds: (state.defeatedTrainerIds ?? []).includes(gymLeaderId)
+        ? (state.defeatedTrainerIds ?? [])
+        : [...(state.defeatedTrainerIds ?? []), gymLeaderId],
     };
     save(next);
     return next;
@@ -703,6 +745,8 @@ export const playerState = {
     const healed = state.party.map((p) => ({
       ...p,
       currentHp: p.maxHp,
+      statusCondition: null as null,
+      statusTurnsLeft: 0,
       moves: p.moves.map((m) => ({ ...m, currentPp: m.pp })),
     }));
     const next: PlayerState = {
@@ -712,6 +756,14 @@ export const playerState = {
     };
     save(next);
     return { ok: true, state: next };
+  },
+
+  /** Change the player's current area. */
+  setCurrentArea(state: PlayerState, areaId: string): PlayerState {
+    if (state.currentAreaId === areaId) return state;
+    const next: PlayerState = { ...state, currentAreaId: areaId };
+    save(next);
+    return next;
   },
 
   MAX_PARTY_SIZE,

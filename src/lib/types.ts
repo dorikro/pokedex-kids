@@ -171,6 +171,10 @@ export interface GameMove {
   power: number | null;   // null for status moves
   pp: number;
   damageClass: "physical" | "special" | "status";
+  /** Status condition this move can inflict (from STATUS_MOVE_DATA lookup) */
+  ailment?: StatusCondition | null;
+  /** 0–100 chance to inflict the ailment */
+  ailmentChance?: number;
 }
 
 /**
@@ -194,6 +198,10 @@ export interface OwnedPokemon {
   currentHp: number;
   /** Calculated max HP based on base stat + level */
   maxHp: number;
+  /** Non-volatile status condition (persists after battle until cured) */
+  statusCondition: StatusCondition | null;
+  /** Turns remaining for timed status (sleep: 1–3, freeze: 1–5). 0 = permanent. */
+  statusTurnsLeft: number;
   /** Calculated stats (attack, defense, etc.) adjusted for level */
   stats: { name: string; value: number }[];
   /** Up to 4 moves */
@@ -222,6 +230,10 @@ export interface OwnedPokemon {
 export interface Area {
   id: string;
   name: string;
+  /** Short description shown in area selector */
+  description: string;
+  /** Minimum recommended party level for this area */
+  recommendedLevel: number;
   /** Level range for wild Pokemon in this area */
   levelRange: [number, number];
   /** Pokemon IDs that can appear here (empty = any) */
@@ -232,6 +244,14 @@ export interface Area {
   catchRateModifier: number;
 }
 
+// ─── Status conditions ────────────────────────────────────────────────────────
+
+/**
+ * Non-volatile status conditions a Pokémon can have.
+ * Persists between battles until cured by item or Clinic.
+ */
+export type StatusCondition = "poison" | "burn" | "sleep" | "paralysis" | "freeze";
+
 /**
  * All purchasable / holdable item IDs.
  * Extend this union as new items are added.
@@ -241,8 +261,13 @@ export type ItemId =
   | "great-ball"
   | "potion"
   | "super-potion"
-  | "antidote"     // future
-  | "revive";      // future
+  | "antidote"
+  | "burn-heal"
+  | "awakening"
+  | "paralyze-heal"
+  | "ice-heal"
+  | "full-heal"
+  | "revive";
 
 /** A single item definition from the catalogue. */
 export interface ItemDef {
@@ -253,12 +278,14 @@ export interface ItemDef {
   emoji: string;
   /** PokeAPI sprite URL — https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/{slug}.png */
   sprite: string;
-  /** What the item does when used — "heal" | "catch" | "revive" */
-  effect: "heal" | "catch" | "revive";
+  /** What the item does when used — "heal" | "catch" | "revive" | "cure_status" */
+  effect: "heal" | "catch" | "revive" | "cure_status";
   /** HP restored (for heal items) */
   healAmount?: number;
   /** Catch rate multiplier (for ball items) */
   catchModifier?: number;
+  /** Status condition cured (null = any status, for Full Heal) */
+  curesStatus?: StatusCondition | null;
 }
 
 /** One slot in the player's inventory. */
@@ -274,11 +301,6 @@ export interface TrainerDef {
   id: string;
   name: string;
   emoji: string;
-  /**
-   * The Pokémon ID whose front sprite is used as the trainer's avatar.
-   * Sprite URL: https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{leadPokemonId}.png
-   * PokeAPI/sprites has no trainer-class sprites, so we use the trainer's lead Pokémon instead.
-   */
   leadPokemonId: number;
   /** Prize money awarded on win */
   reward: number;
@@ -288,6 +310,14 @@ export interface TrainerDef {
   party: { pokemonId: number; level: number }[];
   /** Flavour text shown before battle */
   intro: string;
+  /** True if this trainer is a Gym Leader who awards a badge */
+  isGymLeader?: boolean;
+  /** Badge number awarded on first win (1-based) */
+  badgeAwarded?: number;
+  /** Minimum average party level required to challenge this Gym Leader */
+  gymLeaderLevelReq?: number;
+  /** IDs of regular trainers that must be beaten before challenging this GL */
+  gymLeaderTrainerReqs?: string[];
 }
 
 /**
@@ -314,8 +344,12 @@ export interface PlayerState {
   seen: number[];
   /** IDs of Pokemon species the player has caught */
   caught: number[];
-  /** Trainer IDs already defeated today (reset on new day) */
+  /** Trainer IDs defeated today (resets daily — for regen/grind tracking) */
   defeatedTrainers: string[];
+  /** Trainer IDs ever defeated — permanent, used to unlock Gym Leaders */
+  defeatedTrainerIds: string[];
+  /** Gym Leader IDs defeated — permanent, badge only awarded once per leader */
+  defeatedGymLeaders: string[];
   /** Current area ID */
   currentAreaId: string;
   /**

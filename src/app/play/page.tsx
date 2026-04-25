@@ -1,29 +1,34 @@
 "use client";
 
 /**
- * /play — Unified game hub.
+ * /play — Unified game hub (v0.2.4)
  *
- * All game features in one page: Party management, Wild encounters (fight+catch),
- * Trainer battles, Shop, and Pokémon Clinic.  No page navigation during gameplay.
+ * Features added in v0.2.4:
+ *  - Status effects (poison/burn/sleep/paralysis/freeze) with visual badges
+ *  - Switch Pokémon on faint (forced) or voluntarily (costs a turn)
+ *  - Use items mid-battle (costs a turn)
+ *  - Gym leader system with badge awards
+ *  - 6 areas (Pallet Town → Pokémon Tower), selectable in Wild tab
+ *  - Status/badge UI throughout
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { playerState, applyRealMoves, xpReward, awardXp, createOwnedPokemon } from "@/lib/player-state";
-import { getArea } from "@/lib/areas";
-import { resolveTurn, attemptFlee, buildWildBattlePokemon } from "@/lib/battle";
+import { playerState, applyRealMoves, xpReward, createOwnedPokemon } from "@/lib/player-state";
+import { AREAS, getArea, getUnlockedAreas } from "@/lib/areas";
+import { resolveTurn, resolveEnemyOnly, attemptFlee, buildWildBattlePokemon } from "@/lib/battle";
 import { attemptCatch, pickWildPokemonId, pickWildLevel } from "@/lib/catch";
 import { fetchPokemonDetail, formatPokemonName } from "@/lib/api-client";
 import { ITEM_CATALOGUE, ITEM_MAP, applyItemToPokemon } from "@/lib/items";
-import { TRAINERS } from "@/lib/trainer";
+import { TRAINERS, getGymLeaders } from "@/lib/trainer";
 import { useTranslation } from "@/lib/i18n/index";
 import TypeBadge from "@/components/TypeBadge";
 import Link from "next/link";
-import type { OwnedPokemon, PlayerState, LocalPokemon, ItemId } from "@/lib/types";
+import type { OwnedPokemon, PlayerState, LocalPokemon, ItemId, StatusCondition } from "@/lib/types";
 import type { BattleEvent } from "@/lib/battle";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CLINIC_COST = 200; // ₽200 flat fee to heal all party Pokémon
+const CLINIC_COST = 200;
 const POKE_SPRITE = (id: number) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 const ITEM_SPRITES = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items";
@@ -34,7 +39,8 @@ type Tab = "party" | "wild" | "trainers" | "shop" | "clinic";
 
 interface BattleCtx {
   mode: "wild" | "trainer";
-  phase: "choose_action" | "animating" | "battle_over";
+  phase: "choose_action" | "animating" | "battle_over" | "choose_switch" | "choose_item";
+  switchReason: "voluntary" | "fainted";
   playerPokemon: OwnedPokemon;
   enemyPokemon: OwnedPokemon;
   eventLog: BattleEvent[];
@@ -46,6 +52,24 @@ interface BattleCtx {
   playerShaking: boolean;
   enemyShaking: boolean;
   trainerId: string | null;
+}
+
+// ─── Status badge component ───────────────────────────────────────────────────
+
+const STATUS_STYLE: Record<StatusCondition, { label: string; cls: string }> = {
+  poison:    { label: "PSN", cls: "bg-purple-100 text-purple-700 border-purple-300" },
+  burn:      { label: "BRN", cls: "bg-red-100 text-red-700 border-red-300" },
+  sleep:     { label: "SLP", cls: "bg-gray-200 text-gray-600 border-gray-400" },
+  paralysis: { label: "PAR", cls: "bg-yellow-100 text-yellow-700 border-yellow-300" },
+  freeze:    { label: "FRZ", cls: "bg-cyan-100 text-cyan-700 border-cyan-300" },
+};
+
+function StatusBadge({ status }: { status: StatusCondition | null }) {
+  if (!status) return null;
+  const s = STATUS_STYLE[status];
+  return (
+    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${s.cls}`}>{s.label}</span>
+  );
 }
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
@@ -113,6 +137,10 @@ function EventLog({ events }: { events: BattleEvent[] }) {
           e.kind === "ko" ? "font-bold text-red-600"
           : e.kind === "level_up" ? "font-bold text-blue-600"
           : e.kind === "critical" ? "font-semibold text-yellow-600"
+          : e.kind === "status_applied" ? "text-purple-600 font-medium"
+          : e.kind === "status_tick" ? "text-orange-500 text-xs"
+          : e.kind === "status_cured" ? "text-green-600 font-medium"
+          : e.kind === "cant_move" ? "text-gray-400 italic text-xs"
           : e.kind === "effectiveness" && e.text.includes("super") ? "font-semibold text-green-600"
           : "text-gray-700"
         }>{e.text}</p>
@@ -136,11 +164,11 @@ export default function PlayPage() {
   const [wildLevel, setWildLevel] = useState(5);
   const [ballAnim, setBallAnim] = useState(false);
 
-  // ── Battle state (shared for wild + trainer) ────────────────────
+  // ── Battle state ────────────────────────────────────────────────
   const [battle, setBattle] = useState<BattleCtx | null>(null);
 
-  // ── Item selection for use in party ────────────────────────────
-  const [itemTarget, setItemTarget] = useState<string | null>(null); // instanceId
+  // ── Item selection for use in party tab ────────────────────────
+  const [itemTarget, setItemTarget] = useState<string | null>(null);
 
   useEffect(() => { setSave(playerState.get()); }, []);
 
@@ -189,8 +217,12 @@ export default function PlayPage() {
     setBallAnim(true);
     setTimeout(() => setBallAnim(false), 800);
 
-    const catchResult = attemptCatch(wildSpecies.id, wildSpecies.stats?.find(s => s.name === "hp")?.base_stat ?? 45,
-      wildSpecies.stats?.find(s => s.name === "hp")?.base_stat ?? 45, area, modifier);
+    const catchResult = attemptCatch(
+      wildSpecies.id,
+      wildSpecies.stats?.find(s => s.name === "hp")?.base_stat ?? 45,
+      wildSpecies.stats?.find(s => s.name === "hp")?.base_stat ?? 45,
+      area, modifier
+    );
 
     setTimeout(() => {
       if (catchResult.success) {
@@ -213,6 +245,15 @@ export default function PlayPage() {
     setWildSpecies(null);
   }
 
+  // ─── Area selection ────────────────────────────────────────────
+
+  function selectArea(areaId: string) {
+    if (!save) return;
+    const next = playerState.setCurrentArea(save, areaId);
+    updateSave(next);
+    showFlash(`Moved to ${getArea(areaId).name}!`);
+  }
+
   // ─── Battle: start ─────────────────────────────────────────────
 
   async function startBattle(mode: "wild" | "trainer", trainerId?: string, preloadedSpecies?: LocalPokemon | null, preloadedLevel?: number) {
@@ -220,7 +261,6 @@ export default function PlayPage() {
     const lead = save.party.find(p => p.currentHp > 0);
     if (!lead) { showFlash("All your Pokémon have fainted! Visit the Clinic first.", false); return; }
 
-    // Load real moves for lead (preserves existing PP via updated applyRealMoves)
     let playerPokemon = lead;
     try {
       const res = await fetch(`/api/moves/${lead.species.id}`);
@@ -230,7 +270,6 @@ export default function PlayPage() {
       }
     } catch { /* use synthetic */ }
 
-    // Save updated moves (preserving PP) back so HP/PP state is fresh
     updateSave(playerState.updatePokemon(save, playerPokemon));
 
     let enemyPokemon: OwnedPokemon;
@@ -249,13 +288,11 @@ export default function PlayPage() {
       const species = await fetchPokemonDetail(String(pokemonId));
       enemyPokemon = buildWildBattlePokemon({ id: species.id, name: species.name, types: species.types, sprite: species.sprite, artwork: species.artwork, stats: species.stats }, level);
     } else {
-      // Wild battle — also catchable
       isCatchable = true;
       const area = getArea(save.currentAreaId);
       let wSpecies: Awaited<ReturnType<typeof fetchPokemonDetail>>;
       let wLevel: number;
       if (preloadedSpecies && preloadedLevel != null) {
-        // Use the Pokémon the player already encountered in the wild tab
         wSpecies = preloadedSpecies as unknown as Awaited<ReturnType<typeof fetchPokemonDetail>>;
         wLevel = preloadedLevel;
       } else {
@@ -266,10 +303,13 @@ export default function PlayPage() {
       enemyPokemon = buildWildBattlePokemon({ id: wSpecies.id, name: wSpecies.name, types: wSpecies.types, sprite: wSpecies.sprite, artwork: wSpecies.artwork, stats: wSpecies.stats }, wLevel);
     }
 
+    const trainer = trainerId ? TRAINERS.find(t => t.id === trainerId) : null;
+
     setBattle({
       mode, phase: "choose_action",
+      switchReason: "voluntary",
       playerPokemon, enemyPokemon,
-      eventLog: [{ kind: "move_used", text: trainerName ? `${trainerName}: "${TRAINERS.find(t=>t.id===trainerId)?.intro}"` : `A wild ${formatPokemonName(enemyPokemon.nickname)} appeared!` }],
+      eventLog: [{ kind: "move_used", text: trainerName ? `${trainerName}: "${trainer?.intro}"` : `A wild ${formatPokemonName(enemyPokemon.nickname)} appeared!` }],
       winner: null, moneyEarned, trainerName, trainerAvatarId,
       isCatchable, playerShaking: false, enemyShaking: false,
       trainerId: trainerId ?? null,
@@ -298,12 +338,128 @@ export default function PlayPage() {
     if (playerHurt) setTimeout(() => setBattle(b => b ? { ...b, playerShaking: false } : null), 600);
     if (enemyHurt) setTimeout(() => setBattle(b => b ? { ...b, enemyShaking: false } : null), 600);
 
-    // Persist HP + PP after each turn
     const mid = playerState.updatePokemon(save, result.playerPokemon);
     updateSave(mid);
 
     if (result.battleOver) {
+      // If player's active Pokémon fainted but they have others, offer switch before ending
+      if (result.winner === "enemy" && result.playerPokemon.currentHp <= 0) {
+        const hasHealthy = mid.party.some(p => p.instanceId !== result.playerPokemon.instanceId && p.currentHp > 0);
+        if (hasHealthy) {
+          setTimeout(() => setBattle(b => b ? { ...b, phase: "choose_switch", switchReason: "fainted" } : null), 800);
+          return;
+        }
+      }
       handleBattleEnd(result.playerPokemon, result.enemyPokemon, result.winner, mid);
+    } else {
+      setTimeout(() => setBattle(b => b ? { ...b, phase: "choose_action" } : null), 800);
+    }
+  }, [battle, save]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Battle: switch Pokémon ────────────────────────────────────
+
+  const handleSwitchPokemon = useCallback(async (instanceId: string) => {
+    if (!battle || !save) return;
+    const target = save.party.find(p => p.instanceId === instanceId);
+    if (!target || target.currentHp <= 0) return;
+
+    // Load real moves for the switching-in Pokémon
+    let incoming = target;
+    try {
+      const res = await fetch(`/api/moves/${target.species.id}`);
+      if (res.ok) {
+        const { moves } = await res.json();
+        if (moves?.length) incoming = applyRealMoves(target, moves);
+      }
+    } catch { /* use synthetic */ }
+
+    const mid = playerState.updatePokemon(save, incoming);
+    updateSave(mid);
+
+    if (battle.switchReason === "fainted") {
+      // Forced switch — no enemy attack
+      setBattle(b => b ? {
+        ...b, playerPokemon: incoming,
+        phase: "choose_action",
+        eventLog: [...b.eventLog, { kind: "move_used", text: `Go, ${formatPokemonName(incoming.nickname)}!` }],
+      } : null);
+    } else {
+      // Voluntary switch — enemy attacks back
+      setBattle(b => b ? { ...b, phase: "animating" } : null);
+      const retResult = resolveEnemyOnly(battle.enemyPokemon, incoming);
+      const playerHurt = retResult.playerPokemon.currentHp < incoming.currentHp;
+      const mid2 = playerState.updatePokemon(mid, retResult.playerPokemon);
+      updateSave(mid2);
+
+      setBattle(b => b ? {
+        ...b,
+        playerPokemon: retResult.playerPokemon,
+        enemyPokemon: retResult.enemyPokemon,
+        eventLog: [...b.eventLog,
+          { kind: "move_used", text: `Go, ${formatPokemonName(incoming.nickname)}!` },
+          ...retResult.events,
+        ],
+        playerShaking: playerHurt,
+      } : null);
+      if (playerHurt) setTimeout(() => setBattle(b => b ? { ...b, playerShaking: false } : null), 600);
+
+      if (retResult.battleOver && retResult.playerPokemon.currentHp <= 0) {
+        // Check for more healthy Pokémon after enemy retaliation
+        const hasHealthy = mid2.party.some(p => p.instanceId !== retResult.playerPokemon.instanceId && p.currentHp > 0);
+        if (hasHealthy) {
+          setTimeout(() => setBattle(b => b ? { ...b, phase: "choose_switch", switchReason: "fainted" } : null), 800);
+          return;
+        }
+        handleBattleEnd(retResult.playerPokemon, retResult.enemyPokemon, "enemy", mid2);
+      } else {
+        setTimeout(() => setBattle(b => b ? { ...b, phase: "choose_action" } : null), 800);
+      }
+    }
+  }, [battle, save]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Battle: use item mid-battle ───────────────────────────────
+
+  const handleBagItem = useCallback((itemId: ItemId) => {
+    if (!battle || !save) return;
+    const def = ITEM_MAP[itemId];
+    if (!def) return;
+
+    // Apply item to active Pokémon
+    const result = applyItemToPokemon(itemId, battle.playerPokemon);
+    if (!result.ok) { showFlash(result.message, false); return; }
+    const { ok: used, state: afterUse } = playerState.useItem(save, itemId);
+    if (!used) { showFlash("No more of that item!", false); return; }
+
+    const updatedPlayer = result.updatedPokemon!;
+    const mid = playerState.updatePokemon(afterUse, updatedPlayer);
+    updateSave(mid);
+
+    // Enemy attacks back (costs a turn)
+    setBattle(b => b ? { ...b, phase: "animating" } : null);
+    const retResult = resolveEnemyOnly(battle.enemyPokemon, updatedPlayer);
+    const playerHurt = retResult.playerPokemon.currentHp < updatedPlayer.currentHp;
+    const mid2 = playerState.updatePokemon(mid, retResult.playerPokemon);
+    updateSave(mid2);
+
+    setBattle(b => b ? {
+      ...b,
+      playerPokemon: retResult.playerPokemon,
+      enemyPokemon: retResult.enemyPokemon,
+      eventLog: [...b.eventLog,
+        { kind: "move_used", text: `Used ${def.name}! ${result.message}` },
+        ...retResult.events,
+      ],
+      playerShaking: playerHurt,
+    } : null);
+    if (playerHurt) setTimeout(() => setBattle(b => b ? { ...b, playerShaking: false } : null), 600);
+
+    if (retResult.battleOver && retResult.playerPokemon.currentHp <= 0) {
+      const hasHealthy = mid2.party.some(p => p.instanceId !== retResult.playerPokemon.instanceId && p.currentHp > 0);
+      if (hasHealthy) {
+        setTimeout(() => setBattle(b => b ? { ...b, phase: "choose_switch", switchReason: "fainted" } : null), 800);
+        return;
+      }
+      handleBattleEnd(retResult.playerPokemon, retResult.enemyPokemon, "enemy", mid2);
     } else {
       setTimeout(() => setBattle(b => b ? { ...b, phase: "choose_action" } : null), 800);
     }
@@ -314,20 +470,24 @@ export default function PlayPage() {
   const handleBattleCatch = useCallback(() => {
     if (!battle || !save || !battle.isCatchable) return;
     const ballCount = save.inventory.find(i => i.itemId === "pokeball")?.quantity ?? 0;
-    if (ballCount <= 0) { showFlash("No Pokéballs left! Buy more at the Shop.", false); return; }
+    const greatBallCount = save.inventory.find(i => i.itemId === "great-ball")?.quantity ?? 0;
+    const totalBalls = ballCount + greatBallCount;
+    if (totalBalls <= 0) { showFlash("No Pokéballs left! Buy more at the Shop.", false); return; }
 
-    const { ok: spent, state: afterSpend } = playerState.useItem(save, "pokeball");
+    const ballId: ItemId = ballCount > 0 ? "pokeball" : "great-ball";
+    const { ok: spent, state: afterSpend } = playerState.useItem(save, ballId);
     if (!spent) return;
     updateSave(afterSpend);
 
     const area = getArea(afterSpend.currentAreaId);
     const { enemyPokemon } = battle;
+    const statusBonus = enemyPokemon.statusCondition === "sleep" || enemyPokemon.statusCondition === "freeze" ? 2 : 1;
     const catchResult = attemptCatch(
       enemyPokemon.pokemonId,
       enemyPokemon.currentHp,
       enemyPokemon.maxHp,
       area,
-      1
+      statusBonus
     );
 
     const catchMsg = catchResult.success
@@ -338,7 +498,6 @@ export default function PlayPage() {
 
     if (catchResult.success) {
       import("@/lib/player-state").then(({ createOwnedPokemon }) => {
-        // Build a proper OwnedPokemon from the battle enemy
         const newPok = createOwnedPokemon(
           {
             id: enemyPokemon.species.id,
@@ -359,22 +518,20 @@ export default function PlayPage() {
           showFlash(`${formatPokemonName(enemyPokemon.nickname)} was caught and added to your party!`);
         }, 1000);
       });
-    }
-    // On fail: enemy retaliates
-    else {
+    } else {
+      // Enemy retaliates
       setBattle(b => b ? { ...b, phase: "animating" } : null);
       setTimeout(() => {
         setBattle(b => {
           if (!b) return null;
-          const enemyMove = b.enemyPokemon.moves[Math.floor(Math.random() * b.enemyPokemon.moves.length)];
-          const enemyResult = resolveTurn(b.enemyPokemon, b.playerPokemon, b.enemyPokemon.moves.indexOf(enemyMove));
-          const mid2 = playerState.updatePokemon(afterSpend, enemyResult.enemyPokemon);
+          const retResult = resolveEnemyOnly(b.enemyPokemon, b.playerPokemon);
+          const mid2 = playerState.updatePokemon(afterSpend, retResult.playerPokemon);
           updateSave(mid2);
-          if (enemyResult.battleOver) {
-            handleBattleEnd(enemyResult.enemyPokemon, enemyResult.playerPokemon, enemyResult.winner === "player" ? "enemy" : "player", mid2);
-            return { ...b, playerPokemon: enemyResult.enemyPokemon, phase: "battle_over" };
+          if (retResult.battleOver) {
+            handleBattleEnd(retResult.playerPokemon, retResult.enemyPokemon, "enemy", mid2);
+            return { ...b, playerPokemon: retResult.playerPokemon, phase: "battle_over" };
           }
-          return { ...b, playerPokemon: enemyResult.enemyPokemon, eventLog: [...b.eventLog, ...enemyResult.events], phase: "choose_action" };
+          return { ...b, playerPokemon: retResult.playerPokemon, eventLog: [...b.eventLog, ...retResult.events], phase: "choose_action" };
         });
       }, 800);
     }
@@ -384,7 +541,6 @@ export default function PlayPage() {
 
   const handleBattleFlee = useCallback(() => {
     if (!battle || battle.phase !== "choose_action" || !save) return;
-    // Can't flee trainer battles
     if (battle.mode === "trainer") return;
     setBattle(b => b ? { ...b, phase: "animating" } : null);
 
@@ -419,10 +575,21 @@ export default function PlayPage() {
 
       setBattle(b => {
         if (!b) return null;
-        if (b.trainerId && b.moneyEarned > 0) {
-          finalSave = playerState.earnMoney(finalSave, b.moneyEarned);
-          newEvents.push({ kind: "move_used", text: `You beat ${b.trainerName} and earned ₽${b.moneyEarned}!` });
+
+        // Defeat trainer + possibly award badge
+        if (b.trainerId) {
+          finalSave = playerState.defeatTrainer(finalSave, b.trainerId);
+          const trainer = TRAINERS.find(t => t.id === b.trainerId);
+          if (trainer?.isGymLeader && trainer.badgeAwarded != null) {
+            finalSave = playerState.awardBadge(finalSave, b.trainerId);
+            newEvents.push({ kind: "move_used", text: `🏅 You earned Badge #${trainer.badgeAwarded}!` });
+          }
+          if (b.moneyEarned > 0) {
+            finalSave = playerState.earnMoney(finalSave, b.moneyEarned);
+            newEvents.push({ kind: "move_used", text: `You beat ${b.trainerName} and earned ₽${b.moneyEarned}!` });
+          }
         }
+
         updateSave(finalSave);
         newEvents.push({ kind: "xp_gained", text: `${formatPokemonName(finalPlayer.nickname)} gained ${xp} XP!`, xp });
         if (lvlResult.levelsGained > 0) {
@@ -485,13 +652,14 @@ export default function PlayPage() {
   const greatBallCount = save.inventory.find(i => i.itemId === "great-ball")?.quantity ?? 0;
   const totalBalls = ballCount + greatBallCount;
   const lead = save.party[0];
+  const badges = save.badges ?? 0;
 
   // ─── Tab: Party ───────────────────────────────────────────────
 
   function renderParty() {
     const usableItems = save!.inventory.filter(i => {
       const def = ITEM_MAP[i.itemId];
-      return def && (def.effect === "heal" || def.effect === "revive") && i.quantity > 0;
+      return def && (def.effect === "heal" || def.effect === "revive" || def.effect === "cure_status") && i.quantity > 0;
     });
 
     return (
@@ -509,6 +677,7 @@ export default function PlayPage() {
                   <span className="font-bold text-gray-800">{formatPokemonName(pokemon.nickname)}</span>
                   <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Lv.{pokemon.level}</span>
                   {pokemon.currentHp <= 0 && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">Fainted</span>}
+                  {pokemon.statusCondition && <StatusBadge status={pokemon.statusCondition} />}
                 </div>
                 <div className="flex gap-1 mt-1 flex-wrap">
                   {pokemon.species.types.map(type => <TypeBadge key={type} type={type} />)}
@@ -521,7 +690,7 @@ export default function PlayPage() {
               </div>
             </div>
             {/* Item use */}
-            {usableItems.length > 0 && pokemon.currentHp < pokemon.maxHp && (
+            {usableItems.length > 0 && (pokemon.currentHp < pokemon.maxHp || pokemon.currentHp <= 0 || pokemon.statusCondition) && (
               <div className="mt-3 pt-3 border-t border-gray-100">
                 {itemTarget === pokemon.instanceId ? (
                   <div className="flex flex-wrap gap-2">
@@ -529,11 +698,13 @@ export default function PlayPage() {
                     {usableItems.map(slot => {
                       const def = ITEM_MAP[slot.itemId];
                       if (!def) return null;
-                      const canUse = def.effect === "revive" ? pokemon.currentHp <= 0 : pokemon.currentHp > 0 && pokemon.currentHp < pokemon.maxHp;
+                      let canUse = false;
+                      if (def.effect === "revive") canUse = pokemon.currentHp <= 0;
+                      else if (def.effect === "heal") canUse = pokemon.currentHp > 0 && pokemon.currentHp < pokemon.maxHp;
+                      else if (def.effect === "cure_status") canUse = !!pokemon.statusCondition && (def.curesStatus == null || def.curesStatus === pokemon.statusCondition);
                       return canUse ? (
                         <button key={slot.itemId} onClick={() => useItemOnPokemon(pokemon.instanceId, slot.itemId)}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 text-xs font-semibold rounded-full hover:bg-green-100 transition-colors">
-                          <img src={`${ITEM_SPRITES}/${slot.itemId === "pokeball" ? "poke-ball" : slot.itemId === "great-ball" ? "great-ball" : slot.itemId === "super-potion" ? "super-potion" : slot.itemId}.png`} alt="" width={16} height={16} className="w-4 h-4 object-contain" />
                           {def.name} ×{slot.quantity}
                         </button>
                       ) : null;
@@ -573,6 +744,9 @@ export default function PlayPage() {
   // ─── Tab: Wild ────────────────────────────────────────────────
 
   function renderWild() {
+    const unlockedAreas = getUnlockedAreas(badges);
+    const currentArea = getArea(save!.currentAreaId);
+
     if (wildPhase === "loading") {
       return (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -638,22 +812,54 @@ export default function PlayPage() {
       );
     }
 
-    // Walk phase
+    // Walk phase — show area selector + walk button
     return (
-      <div className="flex flex-col items-center gap-6 py-8">
-        <div className="text-8xl">🌿</div>
-        <div className="text-center">
-          <h2 className="text-xl font-bold text-gray-800">Tall Grass</h2>
-          <p className="text-gray-500 text-sm mt-1">Wild Pokémon are lurking…</p>
+      <div className="flex flex-col gap-6 py-4">
+        {/* Area selector */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Choose Area</h3>
+          <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+            {AREAS.map(area => {
+              const unlocked = area.requiredBadges <= badges;
+              const active = area.id === save!.currentAreaId;
+              return (
+                <button key={area.id}
+                  onClick={() => unlocked && selectArea(area.id)}
+                  disabled={!unlocked}
+                  className={`flex-shrink-0 w-36 text-left p-3 rounded-2xl border transition-all ${
+                    active ? "border-green-400 bg-green-50 shadow-sm"
+                    : unlocked ? "border-gray-200 bg-white hover:border-green-300 hover:bg-green-50"
+                    : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                  }`}
+                >
+                  <div className="font-semibold text-sm text-gray-800 truncate">{area.name}</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5 truncate">{area.description}</div>
+                  <div className="text-[10px] text-gray-400 mt-1">Lv. {area.levelRange[0]}–{area.levelRange[1]}</div>
+                  {!unlocked && <div className="text-[10px] text-gray-400">🔒 {area.requiredBadges} badge{area.requiredBadges !== 1 ? "s" : ""}</div>}
+                  {active && <div className="text-[10px] text-green-600 font-bold mt-0.5">▶ Current</div>}
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <button
-          onClick={startWildEncounter}
-          className="px-10 py-4 bg-green-500 text-white font-bold text-lg rounded-2xl hover:bg-green-600 active:scale-95 transition-all shadow-md"
-        >
-          🚶 Walk into the Grass
-        </button>
-        <div className="text-sm text-gray-400">
-          Balls: 🎾 {ballCount}{greatBallCount > 0 ? ` · 🔵 ${greatBallCount}` : ""}
+
+        {/* Walk button */}
+        <div className="flex flex-col items-center gap-4">
+          <div className="text-6xl">🌿</div>
+          <div className="text-center">
+            <h2 className="text-xl font-bold text-gray-800">{currentArea.name}</h2>
+            <p className="text-gray-500 text-sm mt-1">{currentArea.description}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Lv. {currentArea.levelRange[0]}–{currentArea.levelRange[1]} · Rec. Lv. {currentArea.recommendedLevel}</p>
+          </div>
+          <button
+            onClick={startWildEncounter}
+            className="px-10 py-4 bg-green-500 text-white font-bold text-lg rounded-2xl hover:bg-green-600 active:scale-95 transition-all shadow-md"
+          >
+            🚶 Walk into the Grass
+          </button>
+          <div className="text-sm text-gray-400">
+            Balls: 🎾 {ballCount}{greatBallCount > 0 ? ` · 🔵 ${greatBallCount}` : ""}
+          </div>
         </div>
       </div>
     );
@@ -662,36 +868,82 @@ export default function PlayPage() {
   // ─── Tab: Trainers ────────────────────────────────────────────
 
   function renderTrainers() {
-    const badges = save!.badges ?? 0;
-    return (
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Trainer Battles</h2>
-        <p className="text-xs text-gray-400 -mt-1">Beat trainers to earn PokéDollars.</p>
-        {TRAINERS.map(trainer => {
-          const locked = badges < trainer.requiredBadges;
-          return (
-            <div key={trainer.id} className={`flex items-center gap-3 border rounded-2xl p-4 shadow-sm transition-opacity ${locked ? "opacity-50 bg-gray-50 border-gray-200" : "bg-white border-gray-200"}`}>
-              <div className="w-14 h-14 flex-shrink-0 bg-gray-100 rounded-xl overflow-hidden flex items-center justify-center">
-                <img src={POKE_SPRITE(trainer.leadPokemonId)} alt={trainer.name} width={56} height={56} className="w-14 h-14 object-contain image-rendering-pixelated" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-gray-800">{trainer.emoji} {trainer.name}</div>
-                <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{trainer.intro}</div>
-                <div className={`text-xs font-semibold mt-1 ${locked ? "text-gray-400" : "text-yellow-600"}`}>
-                  {locked ? `🔒 Need ${trainer.requiredBadges} badge${trainer.requiredBadges !== 1 ? "s" : ""}` : `₽${trainer.reward} reward`}
-                </div>
-              </div>
-              {!locked && (
-                <button
-                  onClick={() => startBattle("trainer", trainer.id)}
-                  className="px-4 py-2 bg-blue-500 text-white text-sm font-bold rounded-xl hover:bg-blue-600 transition-colors flex-shrink-0"
-                >
-                  Battle!
-                </button>
-              )}
+    const gymLeaderIds = new Set(getGymLeaders().map(g => g.id));
+    const regularTrainers = TRAINERS.filter(t => !gymLeaderIds.has(t.id));
+    const gymLeaders = getGymLeaders();
+
+    function trainerCard(trainer: (typeof TRAINERS)[number]) {
+      const locked = badges < trainer.requiredBadges;
+      const defeated = (save!.defeatedTrainers ?? []).includes(trainer.id);
+
+      // Gym leader unlock check
+      let gymLocked = false;
+      let gymLockReason = "";
+      if (trainer.isGymLeader) {
+        const avgLevel = save!.party.length > 0
+          ? save!.party.reduce((s, p) => s + p.level, 0) / save!.party.length
+          : 0;
+        const levelOk = avgLevel >= (trainer.gymLeaderLevelReq ?? 0);
+        const permDefeated = save!.defeatedTrainerIds ?? [];
+        const trainersOk = (trainer.gymLeaderTrainerReqs ?? []).every(id => permDefeated.includes(id));
+        gymLocked = !levelOk || !trainersOk;
+        if (!levelOk) gymLockReason = `Need avg Lv. ${trainer.gymLeaderLevelReq}`;
+        else if (!trainersOk) gymLockReason = "Defeat all trainers first";
+      }
+
+      const isDefeatedForGood = trainer.isGymLeader && (save!.defeatedGymLeaders ?? []).includes(trainer.id);
+
+      return (
+        <div key={trainer.id} className={`flex items-center gap-3 border rounded-2xl p-4 shadow-sm transition-opacity ${(locked || gymLocked) && !isDefeatedForGood ? "opacity-50 bg-gray-50 border-gray-200" : "bg-white border-gray-200"}`}>
+          <div className="w-14 h-14 flex-shrink-0 bg-gray-100 rounded-xl overflow-hidden flex items-center justify-center relative">
+            <img src={POKE_SPRITE(trainer.leadPokemonId)} alt={trainer.name} width={56} height={56} className="w-14 h-14 object-contain image-rendering-pixelated" />
+            {isDefeatedForGood && <div className="absolute inset-0 bg-green-400/30 flex items-center justify-center"><span className="text-lg">🏅</span></div>}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-gray-800 flex items-center gap-1">
+              {trainer.emoji} {trainer.name}
+              {trainer.isGymLeader && <span className="text-[10px] bg-yellow-100 text-yellow-700 border border-yellow-300 px-1.5 py-0.5 rounded-full font-bold ml-1">GYM</span>}
+              {isDefeatedForGood && <span className="text-[10px] bg-green-100 text-green-700 border border-green-300 px-1.5 py-0.5 rounded-full font-bold ml-1">✓</span>}
             </div>
-          );
-        })}
+            <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{trainer.intro}</div>
+            {locked ? (
+              <div className="text-xs font-semibold mt-1 text-gray-400">🔒 Need {trainer.requiredBadges} badge{trainer.requiredBadges !== 1 ? "s" : ""}</div>
+            ) : gymLocked ? (
+              <div className="text-xs font-semibold mt-1 text-orange-500">⚠ {gymLockReason}</div>
+            ) : (
+              <div className="text-xs font-semibold mt-1 text-yellow-600">₽{trainer.reward} reward{defeated ? " · Daily reset pending" : ""}</div>
+            )}
+          </div>
+          {!locked && !gymLocked && !isDefeatedForGood && (
+            <button
+              onClick={() => startBattle("trainer", trainer.id)}
+              className="px-4 py-2 bg-blue-500 text-white text-sm font-bold rounded-xl hover:bg-blue-600 transition-colors flex-shrink-0"
+            >
+              Battle!
+            </button>
+          )}
+          {isDefeatedForGood && (
+            <span className="text-xs text-green-600 font-semibold flex-shrink-0">Cleared!</span>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Trainers</h2>
+          <p className="text-xs text-gray-400 mb-3">Beat trainers to earn PokéDollars. Resets daily.</p>
+          <div className="space-y-3">{regularTrainers.map(trainerCard)}</div>
+        </div>
+
+        {gymLeaders.length > 0 && (
+          <div>
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1 mt-2">🏟 Gym Leaders</h2>
+            <p className="text-xs text-gray-400 mb-3">Defeat gym leaders to earn badges and unlock new areas.</p>
+            <div className="space-y-3">{gymLeaders.map(trainerCard)}</div>
+          </div>
+        )}
       </div>
     );
   }
@@ -747,7 +999,7 @@ export default function PlayPage() {
   // ─── Tab: Clinic ──────────────────────────────────────────────
 
   function renderClinic() {
-    const needsHealing = save!.party.some(p => p.currentHp < p.maxHp || p.moves.some(m => m.currentPp < m.pp));
+    const needsHealing = save!.party.some(p => p.currentHp < p.maxHp || p.moves.some(m => m.currentPp < m.pp) || p.statusCondition);
     const canAfford = save!.money >= CLINIC_COST;
 
     function heal() {
@@ -762,19 +1014,19 @@ export default function PlayPage() {
         <div className="text-center py-4">
           <div className="text-6xl mb-3">🏥</div>
           <h2 className="text-xl font-bold text-gray-800">Pokémon Clinic</h2>
-          <p className="text-gray-500 text-sm mt-1">Heal all your Pokémon to full HP and restore all PP.</p>
+          <p className="text-gray-500 text-sm mt-1">Heal all your Pokémon to full HP, restore PP, and cure all status effects.</p>
           <p className="text-yellow-600 font-bold mt-1">Cost: ₽{CLINIC_COST}</p>
         </div>
 
-        {/* Party HP preview */}
         <div className="space-y-2">
           {save!.party.map(p => (
             <div key={p.instanceId} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3">
               <img src={p.species.sprite ?? POKE_SPRITE(p.pokemonId)} alt={formatPokemonName(p.nickname)} width={40} height={40} className="w-10 h-10 object-contain image-rendering-pixelated flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-semibold text-gray-800">{formatPokemonName(p.nickname)}</span>
                   <span className="text-xs text-gray-400">Lv.{p.level}</span>
+                  {p.statusCondition && <StatusBadge status={p.statusCondition} />}
                 </div>
                 <HpBar current={p.currentHp} max={p.maxHp} />
               </div>
@@ -814,6 +1066,98 @@ export default function PlayPage() {
     const isAnimating = phase === "animating";
     const isOver = phase === "battle_over";
 
+    // ── Choose switch screen ──
+    if (phase === "choose_switch") {
+      const isForced = battle.switchReason === "fainted";
+      return (
+        <div className="space-y-4 pb-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center">
+            <p className="font-bold text-blue-800 text-lg">{isForced ? `${formatPokemonName(pp.nickname)} fainted!` : "Switch Pokémon"}</p>
+            <p className="text-sm text-blue-600 mt-1">{isForced ? "Choose your next Pokémon!" : "Which Pokémon will fight next? Enemy gets a free attack."}</p>
+          </div>
+          <EventLog events={eventLog} />
+          <div className="space-y-2">
+            {save!.party.map(pok => {
+              const isFainted = pok.currentHp <= 0;
+              const isCurrent = pok.instanceId === pp.instanceId;
+              const disabled = isFainted || isCurrent;
+              return (
+                <button key={pok.instanceId}
+                  onClick={() => !disabled && handleSwitchPokemon(pok.instanceId)}
+                  disabled={disabled}
+                  className={`w-full flex items-center gap-3 border rounded-2xl p-3 text-left transition-all ${
+                    disabled ? "opacity-40 bg-gray-50 border-gray-200 cursor-not-allowed"
+                    : "bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                  }`}
+                >
+                  <img src={pok.species.sprite ?? POKE_SPRITE(pok.pokemonId)} alt={formatPokemonName(pok.nickname)} width={48} height={48} className="w-12 h-12 object-contain image-rendering-pixelated flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm text-gray-800">{formatPokemonName(pok.nickname)}</span>
+                      <span className="text-xs text-gray-400">Lv.{pok.level}</span>
+                      {isCurrent && <span className="text-xs text-blue-500 font-semibold">Active</span>}
+                      {isFainted && <span className="text-xs text-red-500 font-semibold">Fainted</span>}
+                      {pok.statusCondition && <StatusBadge status={pok.statusCondition} />}
+                    </div>
+                    <div className="mt-1"><HpBar current={pok.currentHp} max={pok.maxHp} /></div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {!isForced && (
+            <button onClick={() => setBattle(b => b ? { ...b, phase: "choose_action" } : null)}
+              className="w-full py-2 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+              ← Back
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    // ── Choose item screen ──
+    if (phase === "choose_item") {
+      const battleItems = save!.inventory.filter(i => {
+        const def = ITEM_MAP[i.itemId];
+        // No balls in battle bag, only heal/cure/revive
+        return def && def.effect !== "catch" && i.quantity > 0;
+      });
+      return (
+        <div className="space-y-4 pb-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-center">
+            <p className="font-bold text-amber-800">Use an item</p>
+            <p className="text-xs text-amber-600 mt-0.5">Using an item costs a turn — enemy gets a free attack.</p>
+          </div>
+          <EventLog events={eventLog} />
+          {battleItems.length === 0 && <p className="text-center text-gray-400 text-sm py-4">No usable items!</p>}
+          <div className="space-y-2">
+            {battleItems.map(slot => {
+              const def = ITEM_MAP[slot.itemId];
+              if (!def) return null;
+              return (
+                <button key={slot.itemId}
+                  onClick={() => handleBagItem(slot.itemId)}
+                  className="w-full flex items-center gap-3 border border-gray-200 bg-white rounded-2xl p-3 text-left hover:border-amber-300 hover:bg-amber-50 transition-all"
+                >
+                  <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-gray-50 rounded-xl">
+                    <img src={def.sprite ?? `${ITEM_SPRITES}/potion.png`} alt={def.name} width={32} height={32} className="w-8 h-8 object-contain image-rendering-pixelated" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm text-gray-800">{def.name} ×{slot.quantity}</div>
+                    <div className="text-xs text-gray-500">{def.description}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <button onClick={() => setBattle(b => b ? { ...b, phase: "choose_action" } : null)}
+            className="w-full py-2 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+            ← Back
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4 pb-4">
         {/* Trainer avatar banner */}
@@ -832,6 +1176,7 @@ export default function PlayPage() {
           {/* Enemy */}
           <div className={`flex flex-col items-end gap-2 ${enemyShaking ? "animate-bounce" : ""}`}>
             <div className="flex items-center gap-2">
+              {ep.statusCondition && <StatusBadge status={ep.statusCondition} />}
               <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Lv.{ep.level}</span>
               <span className="font-bold text-gray-800">{formatPokemonName(ep.nickname)}</span>
             </div>
@@ -849,6 +1194,7 @@ export default function PlayPage() {
             <div className="flex items-center gap-2">
               <span className="font-bold text-gray-800">{formatPokemonName(pp.nickname)}</span>
               <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Lv.{pp.level}</span>
+              {pp.statusCondition && <StatusBadge status={pp.statusCondition} />}
             </div>
             <div className="flex gap-1">
               {pp.species.types.map(type => <TypeBadge key={type} type={type} />)}
@@ -889,7 +1235,7 @@ export default function PlayPage() {
               })}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {isCatchable && (
                 <button onClick={handleBattleCatch} disabled={isAnimating || totalBalls === 0}
                   className="flex-1 py-2 bg-white border-2 border-red-300 text-red-600 font-bold rounded-xl hover:bg-red-50 transition-colors disabled:opacity-40 text-sm flex items-center justify-center gap-1">
@@ -897,6 +1243,14 @@ export default function PlayPage() {
                   Ball ({totalBalls})
                 </button>
               )}
+              <button onClick={() => setBattle(b => b ? { ...b, phase: "choose_item" } : null)} disabled={isAnimating}
+                className="flex-1 py-2 bg-amber-50 border-2 border-amber-300 text-amber-700 font-bold rounded-xl hover:bg-amber-100 transition-colors disabled:opacity-40 text-sm">
+                🎒 Bag
+              </button>
+              <button onClick={() => setBattle(b => b ? { ...b, phase: "choose_switch", switchReason: "voluntary" } : null)} disabled={isAnimating}
+                className="flex-1 py-2 bg-blue-50 border-2 border-blue-300 text-blue-700 font-bold rounded-xl hover:bg-blue-100 transition-colors disabled:opacity-40 text-sm">
+                🔄 Switch
+              </button>
               {!trainerName && (
                 <button onClick={handleBattleFlee} disabled={isAnimating}
                   className="flex-1 py-2 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-40 text-sm">
@@ -956,6 +1310,7 @@ export default function PlayPage() {
         <div className="flex items-center gap-3 text-sm font-semibold">
           <span className="text-yellow-600">₽{save.money.toLocaleString()}</span>
           <span className="text-gray-500">🎾 {ballCount}</span>
+          {badges > 0 && <span className="text-amber-500">🏅 {badges}</span>}
         </div>
       </div>
 
