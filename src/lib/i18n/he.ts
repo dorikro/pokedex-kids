@@ -122,6 +122,28 @@ export const he: TranslationDictionary = {
     breakdown: "פירוט הקרב",
     winsStatCount: (name: string, count: number, total: number) =>
       `${name} מנצח ב-${count} מתוך ${total} סטטיסטיקות`,
+    // ── v0.2.1 interactive ───────────────────────────────────────
+    yourTurn: "!תורך! בחרו מהלך",
+    enemyTurn: "...האויב חושב",
+    chooseMove: "בחרו מהלך",
+    pp: "PP",
+    flee: "ברח",
+    fleeSuccess: "!ברחתם בשלום",
+    fleeFail: "!אי אפשר לברוח",
+    fainted: (name: string) => `!${name} התעלף`,
+    xpGained: (name: string, xp: number) => `!${name} קיבל ${xp} XP`,
+    levelUp: (name: string, level: number) => `!${name} עלה לרמה ${level}`,
+    evolved: (from: string, to: string) => `!${from} מתפתח ל-${to}`,
+    wildBattleTitle: (name: string) => `!${name} פראי הופיע`,
+    playerWins: "!ניצחתם בקרב",
+    enemyWins: "...הפסדתם. נסו שוב",
+    continueBtn: "המשך",
+    usePartyPokemon: "הילחם עם הקבוצה",
+    noPP: "!אין PP — משתמש ב-Struggle",
+    critical: "!מכה קריטית",
+    superEffectiveMsg: "!זה אפקטיבי במיוחד",
+    notVeryEffectiveMsg: "...זה לא כל כך אפקטיבי",
+    noEffectMsg: "אין השפעה על",
   },
 
   // ─── Battle reasons ───────────────────────────────────────────────

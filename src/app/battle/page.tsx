@@ -1,527 +1,450 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { LocalPokemon } from "@/lib/types";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { resolveTurn, attemptFlee, buildWildBattlePokemon } from "@/lib/battle";
+import { playerState, applyRealMoves, awardXp, xpReward } from "@/lib/player-state";
+import { getArea } from "@/lib/areas";
+import { pickWildPokemonId, pickWildLevel } from "@/lib/catch";
 import { fetchPokemonDetail, formatPokemonName } from "@/lib/api-client";
-import { calculateBattle, BattleResult } from "@/lib/battle";
 import { useTranslation } from "@/lib/i18n/index";
-import { STAT_COLORS } from "@/lib/constants";
 import TypeBadge from "@/components/TypeBadge";
+import type { OwnedPokemon, PlayerState } from "@/lib/types";
+import type { BattleEvent } from "@/lib/battle";
 
-/* ─── Mini stat bars shown inside each picker card ──────────────── */
+// ─── HP bar ──────────────────────────────────────────────────────────────────
 
-function MiniStatBars({ pokemon }: { pokemon: LocalPokemon }) {
-  const { t } = useTranslation();
-
+function HpBar({
+  current, max, animate,
+}: { current: number; max: number; animate?: boolean }) {
+  const pct = Math.max(0, Math.min((current / max) * 100, 100));
+  const color = pct > 50 ? "bg-green-400" : pct > 20 ? "bg-yellow-400" : "bg-red-400";
   return (
-    <div className="w-full flex flex-col gap-1 mt-2">
-      {pokemon.stats.map((stat) => {
-        const pct = Math.min((stat.base_stat / 255) * 100, 100);
-        const color = STAT_COLORS[stat.name] || "bg-gray-400";
-        const label = t.stats[stat.name] || stat.name;
-
-        return (
-          <div key={stat.name} className="flex items-center gap-1.5">
-            <span className="text-[10px] text-gray-500 w-12 text-end truncate">
-              {label}
-            </span>
-            <span className="text-[10px] font-semibold text-gray-700 w-6 text-end">
-              {stat.base_stat}
-            </span>
-            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${color}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ─── Pokemon picker ────────────────────────────────────────────── */
-
-interface PokemonPickerProps {
-  label: string;
-  pokemon: LocalPokemon | null;
-  onSelect: (pokemon: LocalPokemon) => void;
-  error: string | null;
-  searchPlaceholder: string;
-  searchNotFound: string;
-  emptyPrompt: string;
-}
-
-function PokemonPicker({
-  label,
-  pokemon,
-  onSelect,
-  error,
-  searchPlaceholder,
-  searchNotFound,
-  emptyPrompt,
-}: PokemonPickerProps) {
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleSearch = async (value: string) => {
-    setQuery(value);
-    setSearchError(null);
-
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    if (!value.trim()) return;
-
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const p = await fetchPokemonDetail(value.trim().toLowerCase());
-        onSelect(p);
-        setSearchError(null);
-      } catch {
-        setSearchError(searchNotFound);
-      }
-      setLoading(false);
-    }, 600);
-  };
-
-  return (
-    <div className="flex-1 flex flex-col items-center gap-3 min-w-[200px]">
-      <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-        {label}
-      </h3>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => handleSearch(e.target.value)}
-        placeholder={searchPlaceholder}
-        className="w-full max-w-[220px] px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-800 text-sm text-center focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent placeholder-gray-400"
-      />
-      {loading && (
-        <div className="w-8 h-8 border-3 border-red-200 border-t-red-500 rounded-full animate-spin" />
-      )}
-      {searchError && (
-        <p className="text-xs text-red-500 text-center">{searchError}</p>
-      )}
-      {error && (
-        <p className="text-xs text-red-500 text-center">{error}</p>
-      )}
-      {pokemon && !loading && (
-        <div className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl border border-gray-200 w-full max-w-[220px]">
-          {pokemon.sprite ? (
-            <img
-              src={pokemon.sprite}
-              alt={pokemon.name}
-              width={96}
-              height={96}
-              className="w-24 h-24 image-rendering-pixelated"
-            />
-          ) : (
-            <div className="w-24 h-24 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
-              ?
-            </div>
-          )}
-          <p className="font-semibold text-gray-800">
-            {formatPokemonName(pokemon.name)}
-          </p>
-          <p className="text-xs text-gray-400 font-mono">
-            #{pokemon.id.toString().padStart(4, "0")}
-          </p>
-          <div className="flex gap-1">
-            {pokemon.types.map((type) => (
-              <TypeBadge key={type} type={type} />
-            ))}
-          </div>
-          {/* Mini stat bars */}
-          <MiniStatBars pokemon={pokemon} />
-        </div>
-      )}
-      {!pokemon && !loading && !searchError && (
-        <div className="flex flex-col items-center justify-center w-full max-w-[220px] h-48 bg-white rounded-2xl border-2 border-dashed border-gray-200">
-          <p className="text-gray-300 text-4xl mb-2">?</p>
-          <p className="text-gray-400 text-xs">{emptyPrompt}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── Type effectiveness label ──────────────────────────────────── */
-
-function EffectivenessLabel({
-  multiplier,
-  t,
-}: {
-  multiplier: number;
-  t: ReturnType<typeof useTranslation>["t"];
-}) {
-  if (multiplier === 0) {
-    return (
-      <span className="text-sm font-semibold text-gray-400">
-        {t.battle.noEffect} (0x)
-      </span>
-    );
-  }
-  if (multiplier > 1) {
-    return (
-      <span className="text-sm font-semibold text-green-600">
-        {t.battle.superEffective} ({multiplier}x)
-      </span>
-    );
-  }
-  if (multiplier < 1) {
-    return (
-      <span className="text-sm font-semibold text-red-500">
-        {t.battle.notVeryEffective} ({multiplier}x)
-      </span>
-    );
-  }
-  return (
-    <span className="text-sm font-semibold text-gray-500">
-      {t.battle.neutral} (1x)
-    </span>
-  );
-}
-
-/* ─── Side-by-side stat comparison bar ──────────────────────────── */
-
-function StatComparisonRow({
-  statName,
-  value1,
-  value2,
-  translatedName,
-}: {
-  statName: string;
-  value1: number;
-  value2: number;
-  translatedName: string;
-}) {
-  const max = Math.max(value1, value2, 1);
-  const pct1 = (value1 / max) * 100;
-  const pct2 = (value2 / max) * 100;
-  const color = STAT_COLORS[statName] || "bg-gray-400";
-
-  const winner = value1 > value2 ? 1 : value2 > value1 ? 2 : 0;
-
-  return (
-    <div className="flex items-center gap-2">
-      {/* Pokemon 1 value */}
-      <span
-        className={`text-xs font-bold w-8 text-end ${
-          winner === 1 ? "text-green-600" : winner === 2 ? "text-red-500" : "text-gray-600"
-        }`}
-      >
-        {value1}
-      </span>
-
-      {/* Pokemon 1 bar (right-aligned, grows left) */}
-      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden flex justify-end">
+    <div className="w-full">
+      <div className="flex justify-between text-xs text-gray-500 mb-1">
+        <span>HP</span>
+        <span className="font-mono">{current}/{max}</span>
+      </div>
+      <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full ${color} ${
-            winner === 1 ? "opacity-100" : "opacity-50"
-          }`}
-          style={{ width: `${pct1}%` }}
+          className={`h-full rounded-full ${color} ${animate ? "transition-all duration-700" : ""}`}
+          style={{ width: `${pct}%` }}
         />
       </div>
-
-      {/* Stat label */}
-      <span className="text-[11px] font-medium text-gray-600 w-14 text-center shrink-0">
-        {translatedName}
-      </span>
-
-      {/* Pokemon 2 bar (left-aligned, grows right) */}
-      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full ${color} ${
-            winner === 2 ? "opacity-100" : "opacity-50"
-          }`}
-          style={{ width: `${pct2}%` }}
-        />
-      </div>
-
-      {/* Pokemon 2 value */}
-      <span
-        className={`text-xs font-bold w-8 ${
-          winner === 2 ? "text-green-600" : winner === 1 ? "text-red-500" : "text-gray-600"
-        }`}
-      >
-        {value2}
-      </span>
     </div>
   );
 }
 
-/* ─── Detailed battle breakdown ─────────────────────────────────── */
+// ─── Pokemon battle card ──────────────────────────────────────────────────────
 
-function BattleBreakdownSection({ result }: { result: BattleResult }) {
+function BattleCard({
+  pokemon, side, shaking,
+}: { pokemon: OwnedPokemon; side: "player" | "enemy"; shaking: boolean }) {
   const { t } = useTranslation();
-  const { breakdown, pokemon1, pokemon2 } = result;
-  const name1 = formatPokemonName(pokemon1.name);
-  const name2 = formatPokemonName(pokemon2.name);
+  const isPlayer = side === "player";
 
   return (
-    <div className="mt-6 bg-gray-50 rounded-2xl border border-gray-200 p-5 space-y-6">
-      <h3 className="text-lg font-bold text-gray-800 text-center">
-        {t.battle.breakdown}
-      </h3>
-
-      {/* ── Stat comparison ───────────────────────────────── */}
-      <div>
-        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
-          {t.battle.statComparison}
-        </h4>
-
-        {/* Names header */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-bold text-gray-700 w-8 text-end">&nbsp;</span>
-          <div className="flex-1 text-end">
-            <span className="text-xs font-semibold text-gray-600">{name1}</span>
-          </div>
-          <span className="w-14 text-center shrink-0">&nbsp;</span>
-          <div className="flex-1">
-            <span className="text-xs font-semibold text-gray-600">{name2}</span>
-          </div>
-          <span className="text-xs font-bold text-gray-700 w-8">&nbsp;</span>
-        </div>
-
-        <div className="space-y-1.5">
-          {breakdown.statComparisons.map((sc) => (
-            <StatComparisonRow
-              key={sc.name}
-              statName={sc.name}
-              value1={sc.stat1}
-              value2={sc.stat2}
-              translatedName={t.stats[sc.name] || sc.name}
-            />
-          ))}
-        </div>
-
-        {/* Stats won summary */}
-        <div className="flex justify-between mt-3 text-xs text-gray-500">
-          <span>{t.battle.winsStatCount(name1, breakdown.statsWon1, 6)}</span>
-          <span>{t.battle.winsStatCount(name2, breakdown.statsWon2, 6)}</span>
-        </div>
+    <div className={`flex flex-col gap-2 ${isPlayer ? "items-start" : "items-end"}`}>
+      {/* Name + level */}
+      <div className={`flex items-center gap-2 ${isPlayer ? "" : "flex-row-reverse"}`}>
+        <span className="font-bold text-gray-800">{formatPokemonName(pokemon.nickname)}</span>
+        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+          {t.game.level} {pokemon.level}
+        </span>
       </div>
 
-      {/* ── Totals & type effectiveness ───────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Total stats */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
-            {t.battle.totalStats}
-          </h4>
-          <div className="flex justify-between items-end">
-            <div className="text-center flex-1">
-              <p className="text-xs text-gray-500 mb-1">{name1}</p>
-              <p
-                className={`text-2xl font-bold ${
-                  breakdown.totalStats1 >= breakdown.totalStats2
-                    ? "text-green-600"
-                    : "text-gray-400"
-                }`}
-              >
-                {breakdown.totalStats1}
-              </p>
-            </div>
-            <span className="text-gray-300 text-lg font-bold px-2">vs</span>
-            <div className="text-center flex-1">
-              <p className="text-xs text-gray-500 mb-1">{name2}</p>
-              <p
-                className={`text-2xl font-bold ${
-                  breakdown.totalStats2 >= breakdown.totalStats1
-                    ? "text-green-600"
-                    : "text-gray-400"
-                }`}
-              >
-                {breakdown.totalStats2}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Type effectiveness */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
-            {t.battle.typeEffectiveness}
-          </h4>
-          <div className="flex justify-between items-start">
-            <div className="text-center flex-1">
-              <p className="text-xs text-gray-500 mb-1">
-                {name1} vs {name2}
-              </p>
-              <EffectivenessLabel multiplier={breakdown.typeMultiplier1vs2} t={t} />
-            </div>
-            <div className="text-center flex-1">
-              <p className="text-xs text-gray-500 mb-1">
-                {name2} vs {name1}
-              </p>
-              <EffectivenessLabel multiplier={breakdown.typeMultiplier2vs1} t={t} />
-            </div>
-          </div>
-        </div>
+      {/* Types */}
+      <div className={`flex gap-1 ${isPlayer ? "" : "flex-row-reverse"}`}>
+        {pokemon.species.types.map((type) => (
+          <TypeBadge key={type} type={type} />
+        ))}
       </div>
 
-      {/* ── Adjusted scores ───────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 text-center">
-          {t.battle.adjustedScore}
-        </h4>
-        <p className="text-[11px] text-gray-400 text-center mb-3">
-          {t.battle.totalStats} x {t.battle.typeEffectiveness}
+      {/* Sprite */}
+      <div className={`${shaking ? "animate-bounce" : ""}`}>
+        {(isPlayer ? pokemon.species.artwork : pokemon.species.sprite) ? (
+          <img
+            src={isPlayer ? (pokemon.species.artwork ?? pokemon.species.sprite ?? "") : (pokemon.species.sprite ?? "")}
+            alt={formatPokemonName(pokemon.nickname)}
+            width={isPlayer ? 100 : 80}
+            height={isPlayer ? 100 : 80}
+            className={`${isPlayer ? "w-24 h-24" : "w-20 h-20"} object-contain drop-shadow-md ${!isPlayer ? "image-rendering-pixelated" : ""}`}
+          />
+        ) : (
+          <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300">?</div>
+        )}
+      </div>
+
+      {/* HP bar */}
+      <div className="w-36 sm:w-44">
+        <HpBar current={pokemon.currentHp} max={pokemon.maxHp} animate />
+      </div>
+    </div>
+  );
+}
+
+// ─── Move button ──────────────────────────────────────────────────────────────
+
+const TYPE_BTN_COLORS: Record<string, string> = {
+  normal: "bg-stone-100 border-stone-300 text-stone-700 hover:bg-stone-200",
+  fire: "bg-red-50 border-red-300 text-red-700 hover:bg-red-100",
+  water: "bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100",
+  electric: "bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100",
+  grass: "bg-green-50 border-green-300 text-green-700 hover:bg-green-100",
+  ice: "bg-cyan-50 border-cyan-300 text-cyan-700 hover:bg-cyan-100",
+  fighting: "bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100",
+  poison: "bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100",
+  ground: "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100",
+  flying: "bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100",
+  psychic: "bg-pink-50 border-pink-300 text-pink-700 hover:bg-pink-100",
+  bug: "bg-lime-50 border-lime-300 text-lime-700 hover:bg-lime-100",
+  rock: "bg-yellow-100 border-yellow-400 text-yellow-800 hover:bg-yellow-200",
+  ghost: "bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100",
+  dragon: "bg-indigo-100 border-indigo-400 text-indigo-800 hover:bg-indigo-200",
+  dark: "bg-gray-200 border-gray-400 text-gray-700 hover:bg-gray-300",
+  steel: "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200",
+  fairy: "bg-pink-50 border-pink-300 text-pink-700 hover:bg-pink-100",
+};
+
+function MoveButton({
+  move, index, disabled, onClick,
+}: {
+  move: OwnedPokemon["moves"][0];
+  index: number;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const { t } = useTranslation();
+  const colors = TYPE_BTN_COLORS[move.type] ?? TYPE_BTN_COLORS.normal;
+  const noPP = move.currentPp <= 0;
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex-1 min-w-[calc(50%-4px)] border rounded-xl p-3 text-left transition-all
+        ${disabled ? "opacity-40 cursor-not-allowed bg-gray-50 border-gray-200" : colors}
+      `}
+      type="button"
+    >
+      <div className="flex justify-between items-start gap-1">
+        <span className="font-semibold text-sm leading-tight">{move.name}</span>
+        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border ${noPP ? "bg-red-50 border-red-200 text-red-500" : "bg-white/60 border-current"}`}>
+          {move.currentPp}/{move.pp} {t.battle.pp}
+        </span>
+      </div>
+      <div className="flex gap-2 mt-1 text-[10px] opacity-70">
+        <span className="capitalize">{move.type}</span>
+        {move.power && <span>· {move.power} pwr</span>}
+      </div>
+    </button>
+  );
+}
+
+// ─── Event log ────────────────────────────────────────────────────────────────
+
+function EventLog({ events }: { events: BattleEvent[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [events]);
+
+  return (
+    <div className="bg-gray-50 rounded-xl border border-gray-200 p-3 h-28 overflow-y-auto text-sm space-y-1">
+      {events.map((e, i) => (
+        <p
+          key={i}
+          className={
+            e.kind === "ko" ? "font-bold text-red-600"
+            : e.kind === "level_up" ? "font-bold text-blue-600"
+            : e.kind === "critical" ? "font-semibold text-yellow-600"
+            : e.kind === "effectiveness" && e.text.includes("super") ? "font-semibold text-green-600"
+            : e.kind === "flee_success" ? "font-semibold text-gray-500"
+            : "text-gray-700"
+          }
+        >
+          {e.text}
         </p>
-        <div className="flex justify-between items-end">
-          <div className="text-center flex-1">
-            <p className="text-xs text-gray-500 mb-1">{name1}</p>
-            <p
-              className={`text-2xl font-bold ${
-                breakdown.adjustedScore1 >= breakdown.adjustedScore2
-                  ? "text-green-600"
-                  : "text-gray-400"
-              }`}
-            >
-              {breakdown.adjustedScore1}
-            </p>
-          </div>
-          <span className="text-gray-300 text-lg font-bold px-2">vs</span>
-          <div className="text-center flex-1">
-            <p className="text-xs text-gray-500 mb-1">{name2}</p>
-            <p
-              className={`text-2xl font-bold ${
-                breakdown.adjustedScore2 >= breakdown.adjustedScore1
-                  ? "text-green-600"
-                  : "text-gray-400"
-              }`}
-            >
-              {breakdown.adjustedScore2}
-            </p>
-          </div>
-        </div>
-      </div>
+      ))}
+      <div ref={bottomRef} />
     </div>
   );
 }
 
-/* ─── Main battle page ──────────────────────────────────────────── */
+// ─── Battle state machine ─────────────────────────────────────────────────────
+
+type BattlePhase = "loading" | "player_turn" | "animating" | "battle_over" | "no_party";
+
+// ─── Main battle page ─────────────────────────────────────────────────────────
 
 export default function BattlePage() {
-  const [pokemon1, setPokemon1] = useState<LocalPokemon | null>(null);
-  const [pokemon2, setPokemon2] = useState<LocalPokemon | null>(null);
-  const [result, setResult] = useState<BattleResult | null>(null);
-  const [battleTriggered, setBattleTriggered] = useState(false);
+  const router = useRouter();
   const { t } = useTranslation();
 
-  // Reset result when Pokemon change
+  const [phase, setPhase] = useState<BattlePhase>("loading");
+  const [playerPokemon, setPlayerPokemon] = useState<OwnedPokemon | null>(null);
+  const [enemyPokemon, setEnemyPokemon] = useState<OwnedPokemon | null>(null);
+  const [eventLog, setEventLog] = useState<BattleEvent[]>([]);
+  const [winner, setWinner] = useState<"player" | "enemy" | null>(null);
+  const [savedState, setSavedState] = useState<PlayerState | null>(null);
+  const [playerShaking, setPlayerShaking] = useState(false);
+  const [enemyShaking, setEnemyShaking] = useState(false);
+
+  // Load player party Pokemon + generate wild opponent
   useEffect(() => {
-    setResult(null);
-    setBattleTriggered(false);
-  }, [pokemon1, pokemon2]);
+    async function init() {
+      const save = playerState.get();
+      setSavedState(save);
 
-  const handleBattle = () => {
-    if (!pokemon1 || !pokemon2) return;
-    if (pokemon1.id === pokemon2.id) return;
-    const res = calculateBattle(pokemon1, pokemon2, t);
-    setResult(res);
-    setBattleTriggered(true);
-  };
+      if (!save.hasStarted || save.party.length === 0) {
+        setPhase("no_party");
+        return;
+      }
 
-  const canBattle = pokemon1 && pokemon2 && pokemon1.id !== pokemon2.id;
-  const samePokemon = pokemon1 && pokemon2 && pokemon1.id === pokemon2.id;
+      // Load real moves for lead Pokemon
+      let lead = save.party[0];
+      try {
+        const res = await fetch(`/api/moves/${lead.species.id}`);
+        if (res.ok) {
+          const { moves } = await res.json();
+          if (moves?.length) lead = applyRealMoves(lead, moves);
+        }
+      } catch { /* use synthetic moves */ }
+
+      // Generate wild opponent
+      try {
+        const area = getArea(save.currentAreaId);
+        const wildId = pickWildPokemonId(area);
+        const wildLevel = pickWildLevel(area);
+        const wildSpecies = await fetchPokemonDetail(String(wildId));
+
+        const wildPokemon = buildWildBattlePokemon(
+          {
+            id: wildSpecies.id,
+            name: wildSpecies.name,
+            types: wildSpecies.types,
+            sprite: wildSpecies.sprite,
+            artwork: wildSpecies.artwork,
+            stats: wildSpecies.stats,
+          },
+          wildLevel
+        );
+
+        setPlayerPokemon(lead);
+        setEnemyPokemon(wildPokemon);
+        setEventLog([{
+          kind: "move_used",
+          text: t.battle.wildBattleTitle(formatPokemonName(wildSpecies.name)),
+        }]);
+        setPhase("player_turn");
+      } catch (err) {
+        console.error(err);
+        setPhase("no_party");
+      }
+    }
+    init();
+  }, [t]);
+
+  const handleMoveSelect = useCallback((moveIndex: number) => {
+    if (!playerPokemon || !enemyPokemon || phase !== "player_turn") return;
+    setPhase("animating");
+
+    const result = resolveTurn(playerPokemon, enemyPokemon, moveIndex);
+
+    // Trigger shake animations based on who took damage
+    const playerHurt = result.playerPokemon.currentHp < playerPokemon.currentHp;
+    const enemyHurt = result.enemyPokemon.currentHp < enemyPokemon.currentHp;
+    if (playerHurt) { setPlayerShaking(true); setTimeout(() => setPlayerShaking(false), 600); }
+    if (enemyHurt) { setEnemyShaking(true); setTimeout(() => setEnemyShaking(false), 600); }
+
+    setPlayerPokemon(result.playerPokemon);
+    setEnemyPokemon(result.enemyPokemon);
+    setEventLog((prev) => [...prev, ...result.events]);
+
+    if (result.battleOver) {
+      handleBattleEnd(result.playerPokemon, result.enemyPokemon, result.winner);
+    } else {
+      setTimeout(() => setPhase("player_turn"), 800);
+    }
+  }, [playerPokemon, enemyPokemon, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleFlee = useCallback(() => {
+    if (!playerPokemon || !enemyPokemon || phase !== "player_turn") return;
+    setPhase("animating");
+
+    const result = attemptFlee(playerPokemon, enemyPokemon);
+    setPlayerPokemon(result.playerPokemon);
+    setEnemyPokemon(result.enemyPokemon);
+    setEventLog((prev) => [...prev, ...result.events]);
+
+    if (result.battleOver) {
+      if (result.fled) {
+        setTimeout(() => router.push("/wild"), 1000);
+      } else {
+        handleBattleEnd(result.playerPokemon, result.enemyPokemon, result.winner);
+      }
+    } else {
+      setTimeout(() => setPhase("player_turn"), 800);
+    }
+  }, [playerPokemon, enemyPokemon, phase, router]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleBattleEnd = useCallback((
+    finalPlayer: OwnedPokemon,
+    finalEnemy: OwnedPokemon,
+    battleWinner: "player" | "enemy" | null
+  ) => {
+    if (!savedState) return;
+    const newEvents: BattleEvent[] = [];
+
+    if (battleWinner === "player") {
+      // Award XP to lead Pokemon
+      const xp = xpReward(finalEnemy.level, false);
+      const { state: newSave, result: levelResult } = playerState.awardBattleXp(savedState, 0, xp);
+      setSavedState(newSave);
+
+      newEvents.push({ kind: "xp_gained", text: t.battle.xpGained(formatPokemonName(finalPlayer.nickname), xp), xp });
+
+      if (levelResult.levelsGained > 0) {
+        newEvents.push({
+          kind: "level_up",
+          text: t.battle.levelUp(formatPokemonName(finalPlayer.nickname), levelResult.pokemon.level),
+          newLevel: levelResult.pokemon.level,
+        });
+        setPlayerPokemon(levelResult.pokemon);
+      }
+
+      if (levelResult.evolved && levelResult.evolutionTargetId) {
+        newEvents.push({
+          kind: "evolution",
+          text: t.battle.evolved(
+            formatPokemonName(finalPlayer.nickname),
+            `#${levelResult.evolutionTargetId}`
+          ),
+          evolutionTargetId: levelResult.evolutionTargetId,
+        });
+      }
+    }
+
+    setEventLog((prev) => [...prev, ...newEvents]);
+    setWinner(battleWinner);
+    setTimeout(() => setPhase("battle_over"), 1200);
+  }, [savedState, t]);
+
+  // ─── Render states ──────────────────────────────────────────────
+
+  if (phase === "loading") {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-10 h-10 border-4 border-red-200 border-t-red-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (phase === "no_party") {
+    return (
+      <div className="max-w-md mx-auto px-4 py-16 text-center">
+        <div className="text-5xl mb-4">⚔️</div>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">No Pokémon to battle with!</h1>
+        <p className="text-gray-500 mb-6">You need at least one Pokémon in your party to battle.</p>
+        <div className="flex gap-3 justify-center">
+          <Link href="/start" className="px-6 py-3 bg-red-500 text-white font-bold rounded-full hover:bg-red-600 transition-colors">
+            Start Game
+          </Link>
+          <Link href="/wild" className="px-6 py-3 bg-green-500 text-white font-bold rounded-full hover:bg-green-600 transition-colors">
+            Catch Pokémon
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!playerPokemon || !enemyPokemon) return null;
+
+  const isAnimating = phase === "animating";
+  const isBattleOver = phase === "battle_over";
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">{t.battle.title}</h1>
-        <p className="text-gray-500 mt-1">{t.battle.subtitle}</p>
+    <div className="max-w-lg mx-auto px-4 py-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold text-gray-900">Battle!</h1>
+        <Link href="/party" className="text-sm text-gray-400 hover:text-gray-600">← Party</Link>
       </div>
 
-      {/* Pickers */}
-      <div className="flex flex-col sm:flex-row gap-6 items-start justify-center mb-8">
-        <PokemonPicker
-          label={t.battle.pokemon1}
-          pokemon={pokemon1}
-          onSelect={setPokemon1}
-          error={null}
-          searchPlaceholder={t.battle.searchPlaceholder}
-          searchNotFound={t.battle.searchNotFound}
-          emptyPrompt={t.battle.typeNameOrNumber}
-        />
-        <div className="flex items-center justify-center self-center text-3xl font-bold text-gray-300 py-4">
-          {t.battle.vs}
-        </div>
-        <PokemonPicker
-          label={t.battle.pokemon2}
-          pokemon={pokemon2}
-          onSelect={setPokemon2}
-          error={null}
-          searchPlaceholder={t.battle.searchPlaceholder}
-          searchNotFound={t.battle.searchNotFound}
-          emptyPrompt={t.battle.typeNameOrNumber}
-        />
-      </div>
-
-      {/* Same pokemon warning */}
-      {samePokemon && (
-        <p className="text-center text-sm text-amber-600 mb-4">
-          {t.battle.samePokemon}
-        </p>
-      )}
-
-      {/* Battle button */}
-      <div className="flex justify-center mb-8">
-        <button
-          onClick={handleBattle}
-          disabled={!canBattle}
-          className={`px-8 py-3 rounded-full text-lg font-bold transition-all ${
-            canBattle
-              ? "bg-red-500 text-white hover:bg-red-600 hover:scale-105 shadow-lg"
-              : "bg-gray-200 text-gray-400 cursor-not-allowed"
-          }`}
-          type="button"
-        >
-          {t.battle.fight}
-        </button>
-      </div>
-
-      {/* Result */}
-      {result && battleTriggered && (
-        <>
-          {/* Winner announcement */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center animate-fade-in">
-            <div className="flex items-center justify-center gap-4 mb-4">
-              {/* Winner sprite */}
-              {result.winner.sprite && (
-                <img
-                  src={result.winner.sprite}
-                  alt={result.winner.name}
-                  width={96}
-                  height={96}
-                  className="w-24 h-24 image-rendering-pixelated"
-                />
-              )}
-              <div>
-                {result.isTie ? (
-                  <p className="text-xl font-bold text-amber-500">
-                    {t.battle.closeMatch}
-                  </p>
-                ) : (
-                  <p className="text-xl font-bold text-green-600">
-                    {t.battle.wins(formatPokemonName(result.winner.name))}
-                  </p>
-                )}
-              </div>
-            </div>
-            <p className="text-gray-600 leading-relaxed max-w-md mx-auto">
-              {result.reason}
-            </p>
+      {/* Arena */}
+      <div className="bg-gradient-to-b from-sky-50 to-green-50 rounded-3xl border border-gray-200 p-6 mb-4">
+        <div className="flex justify-between items-end">
+          {/* Enemy (top-right) */}
+          <div className="flex-1 flex justify-end">
+            <BattleCard pokemon={enemyPokemon} side="enemy" shaking={enemyShaking} />
           </div>
+        </div>
 
-          {/* Detailed breakdown */}
-          <BattleBreakdownSection result={result} />
-        </>
-      )}
+        {/* VS divider */}
+        <div className="text-center my-2 text-2xl font-bold text-gray-200">—</div>
+
+        <div className="flex justify-start">
+          {/* Player (bottom-left) */}
+          <BattleCard pokemon={playerPokemon} side="player" shaking={playerShaking} />
+        </div>
+      </div>
+
+      {/* Event log */}
+      <EventLog events={eventLog} />
+
+      {/* Controls */}
+      <div className="mt-4">
+        {!isBattleOver && (
+          <>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              {isAnimating ? t.battle.enemyTurn : t.battle.yourTurn}
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {playerPokemon.moves.map((move, index) => (
+                <MoveButton
+                  key={index}
+                  move={move}
+                  index={index}
+                  disabled={isAnimating}
+                  onClick={() => handleMoveSelect(index)}
+                />
+              ))}
+            </div>
+            <button
+              onClick={handleFlee}
+              disabled={isAnimating}
+              className="w-full py-2 rounded-xl bg-gray-100 text-gray-500 font-semibold text-sm hover:bg-gray-200 transition-colors disabled:opacity-40"
+              type="button"
+            >
+              {t.battle.flee}
+            </button>
+          </>
+        )}
+
+        {isBattleOver && (
+          <div className="text-center py-4">
+            <p className={`text-xl font-bold mb-4 ${winner === "player" ? "text-green-600" : "text-red-500"}`}>
+              {winner === "player" ? t.battle.playerWins : t.battle.enemyWins}
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-6 py-2.5 bg-red-500 text-white font-bold rounded-full hover:bg-red-600 transition-colors"
+                type="button"
+              >
+                Battle Again!
+              </button>
+              <Link
+                href="/party"
+                className="px-6 py-2.5 bg-gray-100 text-gray-600 font-semibold rounded-full hover:bg-gray-200 transition-colors"
+              >
+                Party
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

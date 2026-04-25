@@ -82,6 +82,28 @@ export interface TranslationDictionary {
     statComparison: string;
     breakdown: string;
     winsStatCount: (name: string, count: number, total: number) => string;
+    // ── v0.2.1 interactive battle ──
+    yourTurn: string;
+    enemyTurn: string;
+    chooseMove: string;
+    pp: string;
+    flee: string;
+    fleeSuccess: string;
+    fleeFail: string;
+    fainted: (name: string) => string;
+    xpGained: (name: string, xp: number) => string;
+    levelUp: (name: string, level: number) => string;
+    evolved: (from: string, to: string) => string;
+    wildBattleTitle: (name: string) => string;
+    playerWins: string;
+    enemyWins: string;
+    continueBtn: string;
+    usePartyPokemon: string;
+    noPP: string;
+    critical: string;
+    superEffectiveMsg: string;
+    notVeryEffectiveMsg: string;
+    noEffectMsg: string;
   };
   battleReasons: {
     tieReason: (winner: string, loser: string) => string;
@@ -308,6 +330,28 @@ export const en: TranslationDictionary = {
     breakdown: "Battle Breakdown",
     winsStatCount: (name: string, count: number, total: number) =>
       `${name} wins ${count} of ${total} stats`,
+    // ── v0.2.1 interactive ────────────────────────────────────────
+    yourTurn: "Your turn! Choose a move:",
+    enemyTurn: "Enemy is thinking...",
+    chooseMove: "Choose a move",
+    pp: "PP",
+    flee: "Flee",
+    fleeSuccess: "Got away safely!",
+    fleeFail: "Can't escape!",
+    fainted: (name: string) => `${name} fainted!`,
+    xpGained: (name: string, xp: number) => `${name} gained ${xp} XP!`,
+    levelUp: (name: string, level: number) => `${name} grew to level ${level}!`,
+    evolved: (from: string, to: string) => `${from} is evolving into ${to}!`,
+    wildBattleTitle: (name: string) => `Wild ${name} appeared!`,
+    playerWins: "You won the battle!",
+    enemyWins: "You lost... Try again!",
+    continueBtn: "Continue",
+    usePartyPokemon: "Fight with your party",
+    noPP: "No PP left — using Struggle!",
+    critical: "A critical hit!",
+    superEffectiveMsg: "It's super effective!",
+    notVeryEffectiveMsg: "It's not very effective...",
+    noEffectMsg: "It doesn't affect",
   },
 
   // ─── Battle reasons ───────────────────────────────────────────────
