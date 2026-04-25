@@ -233,6 +233,64 @@ export interface Area {
 }
 
 /**
+ * All purchasable / holdable item IDs.
+ * Extend this union as new items are added.
+ */
+export type ItemId =
+  | "pokeball"
+  | "great-ball"
+  | "potion"
+  | "super-potion"
+  | "antidote"     // future
+  | "revive";      // future
+
+/** A single item definition from the catalogue. */
+export interface ItemDef {
+  id: ItemId;
+  name: string;
+  description: string;
+  price: number;       // in PokéDollars
+  emoji: string;
+  /** PokeAPI sprite URL — https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/{slug}.png */
+  sprite: string;
+  /** What the item does when used — "heal" | "catch" | "revive" */
+  effect: "heal" | "catch" | "revive";
+  /** HP restored (for heal items) */
+  healAmount?: number;
+  /** Catch rate multiplier (for ball items) */
+  catchModifier?: number;
+}
+
+/** One slot in the player's inventory. */
+export interface InventorySlot {
+  itemId: ItemId;
+  quantity: number;
+}
+
+/**
+ * A trainer the player can battle for money.
+ */
+export interface TrainerDef {
+  id: string;
+  name: string;
+  emoji: string;
+  /**
+   * The Pokémon ID whose front sprite is used as the trainer's avatar.
+   * Sprite URL: https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{leadPokemonId}.png
+   * PokeAPI/sprites has no trainer-class sprites, so we use the trainer's lead Pokémon instead.
+   */
+  leadPokemonId: number;
+  /** Prize money awarded on win */
+  reward: number;
+  /** How many badges required to challenge this trainer */
+  requiredBadges: number;
+  /** Party of Pokemon (species ID + level) */
+  party: { pokemonId: number; level: number }[];
+  /** Flavour text shown before battle */
+  intro: string;
+}
+
+/**
  * The full player save state stored in localStorage.
  */
 export interface PlayerState {
@@ -244,16 +302,27 @@ export interface PlayerState {
   party: OwnedPokemon[];
   /** Overflow Pokemon stored in PC box (no limit) */
   box: OwnedPokemon[];
-  /** Number of Pokeballs the player has */
+  /** Number of Pokeballs the player has (kept for backwards compat) */
   pokeballs: number;
+  /** PokéDollar balance */
+  money: number;
+  /** Item inventory */
+  inventory: InventorySlot[];
   /** Number of badges earned */
   badges: number;
   /** IDs of Pokemon species the player has seen (Pokedex) */
   seen: number[];
   /** IDs of Pokemon species the player has caught */
   caught: number[];
+  /** Trainer IDs already defeated today (reset on new day) */
+  defeatedTrainers: string[];
   /** Current area ID */
   currentAreaId: string;
+  /**
+   * ISO timestamp of the last Pokéball regen grant.
+   * When the player has 0 balls and ≥1 hour has elapsed, they receive 10 free balls.
+   */
+  lastPokeballRegen: string;
   /** ISO timestamp of last save */
   lastSaved: string;
   /** Save format version — lets us migrate localStorage in future versions */

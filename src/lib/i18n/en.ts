@@ -206,6 +206,29 @@ export interface TranslationDictionary {
     newGameConfirm: string;
     save: string;
     back: string;
+    // Economy
+    money: string;
+    balls: string;
+    // Shop
+    shopTitle: string;
+    shopSubtitle: string;
+    shopBuy: string;
+    shopBought: (name: string) => string;
+    shopNotEnoughMoney: string;
+    shopOwned: (n: number) => string;
+    // Trainer battles
+    trainerBattleTitle: string;
+    trainerBattleSubtitle: string;
+    trainerChallenge: string;
+    trainerReward: (amount: number) => string;
+    trainerWon: (name: string, reward: number) => string;
+    trainerLocked: (badges: number) => string;
+    badgeCount: (n: number) => string;
+    // Item use (party page)
+    useItem: string;
+    itemUsed: (msg: string) => string;
+    // Pokéball regen
+    regenNotice: (n: number) => string;
   };
 }
 
@@ -488,5 +511,28 @@ export const en: TranslationDictionary = {
     newGameConfirm: "Start a new game? All progress will be lost!",
     save: "Saved",
     back: "Back",
+    // Economy
+    money: "₽",
+    balls: "Balls",
+    // Shop
+    shopTitle: "Poké Mart",
+    shopSubtitle: "Stock up before heading out!",
+    shopBuy: "Buy",
+    shopBought: (name: string) => `Bought ${name}!`,
+    shopNotEnoughMoney: "Not enough PokéDollars!",
+    shopOwned: (n: number) => `You have: ${n}`,
+    // Trainer battles
+    trainerBattleTitle: "Trainer Battles",
+    trainerBattleSubtitle: "Challenge trainers to earn PokéDollars!",
+    trainerChallenge: "Battle!",
+    trainerReward: (amount: number) => `₽${amount}`,
+    trainerWon: (name: string, reward: number) => `You beat ${name} and earned ₽${reward}!`,
+    trainerLocked: (badges: number) => `Need ${badges} badge${badges === 1 ? "" : "s"}`,
+    badgeCount: (n: number) => `${n} badge${n === 1 ? "" : "s"}`,
+    // Item use (party page)
+    useItem: "Use Item",
+    itemUsed: (msg: string) => msg,
+    // Pokéball regen
+    regenNotice: (n: number) => `You received ${n} free Pokéballs!`,
   },
 };

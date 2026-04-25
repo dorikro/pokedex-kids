@@ -280,5 +280,28 @@ export const he: TranslationDictionary = {
     newGameConfirm: "להתחיל משחק חדש? כל ההתקדמות תאבד!",
     save: "נשמר",
     back: "חזור",
+    // Economy
+    money: "₽",
+    balls: "כדורים",
+    // Shop
+    shopTitle: "חנות פוקה",
+    shopSubtitle: "!התקינו ציוד לפני שיוצאים",
+    shopBuy: "קנה",
+    shopBought: (name: string) => `!קנית ${name}`,
+    shopNotEnoughMoney: "!אין מספיק פוקה-דולרים",
+    shopOwned: (n: number) => `יש לך: ${n}`,
+    // Trainer battles
+    trainerBattleTitle: "קרבות מאמנים",
+    trainerBattleSubtitle: "!אתגר מאמנים כדי להרוויח פוקה-דולרים",
+    trainerChallenge: "!לקרב",
+    trainerReward: (amount: number) => `₽${amount}`,
+    trainerWon: (name: string, reward: number) => `!ניצחת את ${name} וקיבלת ₽${reward}`,
+    trainerLocked: (badges: number) => `צריך ${badges} תגים`,
+    badgeCount: (n: number) => `${n} תגים`,
+    // Item use (party page)
+    useItem: "השתמש בפריט",
+    itemUsed: (msg: string) => msg,
+    // Pokéball regen
+    regenNotice: (n: number) => `!קיבלת ${n} כדורי פוקה חינם`,
   },
 };

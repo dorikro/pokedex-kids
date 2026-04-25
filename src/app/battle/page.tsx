@@ -1,17 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { resolveTurn, attemptFlee, buildWildBattlePokemon } from "@/lib/battle";
-import { playerState, applyRealMoves, awardXp, xpReward } from "@/lib/player-state";
+import { playerState, applyRealMoves, xpReward } from "@/lib/player-state";
 import { getArea } from "@/lib/areas";
 import { pickWildPokemonId, pickWildLevel } from "@/lib/catch";
 import { fetchPokemonDetail, formatPokemonName } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/index";
+import { getTrainer } from "@/lib/trainer";
 import TypeBadge from "@/components/TypeBadge";
 import type { OwnedPokemon, PlayerState } from "@/lib/types";
 import type { BattleEvent } from "@/lib/battle";
+
+const POKEMON_SPRITE = (id: number) =>
+  `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 
 // ─── HP bar ──────────────────────────────────────────────────────────────────
 
@@ -174,12 +178,14 @@ function EventLog({ events }: { events: BattleEvent[] }) {
 
 // ─── Battle state machine ─────────────────────────────────────────────────────
 
-type BattlePhase = "loading" | "player_turn" | "animating" | "battle_over" | "no_party";
+type BattlePhase = "loading" | "trainer_intro" | "player_turn" | "animating" | "battle_over" | "no_party";
 
-// ─── Main battle page ─────────────────────────────────────────────────────────
+// ─── Inner component (uses useSearchParams) ───────────────────────────────────
 
-export default function BattlePage() {
+function BattlePageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const trainerId = searchParams.get("trainer");
   const { t } = useTranslation();
 
   const [phase, setPhase] = useState<BattlePhase>("loading");
@@ -190,12 +196,14 @@ export default function BattlePage() {
   const [savedState, setSavedState] = useState<PlayerState | null>(null);
   const [playerShaking, setPlayerShaking] = useState(false);
   const [enemyShaking, setEnemyShaking] = useState(false);
+  const [moneyEarned, setMoneyEarned] = useState(0);
+  const [trainerName, setTrainerName] = useState<string | null>(null);
+  const [trainerAvatarId, setTrainerAvatarId] = useState<number | null>(null);
 
-  // Load player party Pokemon + generate wild opponent
   useEffect(() => {
     async function init() {
       const save = playerState.get();
-      setSavedState(save);
+      setSave(save);
 
       if (!save.hasStarted || save.party.length === 0) {
         setPhase("no_party");
@@ -212,8 +220,38 @@ export default function BattlePage() {
         }
       } catch { /* use synthetic moves */ }
 
-      // Generate wild opponent
-      try {
+      if (trainerId) {
+        // ── Trainer battle mode ──────────────────────────────────────
+        const trainer = getTrainer(trainerId);
+        if (!trainer) { setPhase("no_party"); return; }
+
+        setTrainerName(trainer.name);
+        setTrainerAvatarId(trainer.leadPokemonId);
+
+        // Build trainer's first Pokémon as the opponent
+        const { pokemonId, level } = trainer.party[0];
+        const trainerSpecies = await fetchPokemonDetail(String(pokemonId));
+        const trainerPokemon = buildWildBattlePokemon(
+          {
+            id: trainerSpecies.id,
+            name: trainerSpecies.name,
+            types: trainerSpecies.types,
+            sprite: trainerSpecies.sprite,
+            artwork: trainerSpecies.artwork,
+            stats: trainerSpecies.stats,
+          },
+          level
+        );
+        setMoneyEarned(trainer.reward);
+        setPlayerPokemon(lead);
+        setEnemyPokemon(trainerPokemon);
+        setEventLog([{
+          kind: "move_used",
+          text: `${trainer.name}: "${trainer.intro}"`,
+        }]);
+        setPhase("trainer_intro");
+      } else {
+        // ── Wild battle mode ──────────────────────────────────────────
         const area = getArea(save.currentAreaId);
         const wildId = pickWildPokemonId(area);
         const wildLevel = pickWildLevel(area);
@@ -230,7 +268,6 @@ export default function BattlePage() {
           },
           wildLevel
         );
-
         setPlayerPokemon(lead);
         setEnemyPokemon(wildPokemon);
         setEventLog([{
@@ -238,21 +275,21 @@ export default function BattlePage() {
           text: t.battle.wildBattleTitle(formatPokemonName(wildSpecies.name)),
         }]);
         setPhase("player_turn");
-      } catch (err) {
-        console.error(err);
-        setPhase("no_party");
       }
     }
     init();
-  }, [t]);
+  }, [t, trainerId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function setSave(s: PlayerState) {
+    setSavedState(s);
+  }
 
   const handleMoveSelect = useCallback((moveIndex: number) => {
-    if (!playerPokemon || !enemyPokemon || phase !== "player_turn") return;
+    if (!playerPokemon || !enemyPokemon || (phase !== "player_turn" && phase !== "trainer_intro")) return;
     setPhase("animating");
 
     const result = resolveTurn(playerPokemon, enemyPokemon, moveIndex);
 
-    // Trigger shake animations based on who took damage
     const playerHurt = result.playerPokemon.currentHp < playerPokemon.currentHp;
     const enemyHurt = result.enemyPokemon.currentHp < enemyPokemon.currentHp;
     if (playerHurt) { setPlayerShaking(true); setTimeout(() => setPlayerShaking(false), 600); }
@@ -271,6 +308,8 @@ export default function BattlePage() {
 
   const handleFlee = useCallback(() => {
     if (!playerPokemon || !enemyPokemon || phase !== "player_turn") return;
+    // Can't flee trainer battles
+    if (trainerId) return;
     setPhase("animating");
 
     const result = attemptFlee(playerPokemon, enemyPokemon);
@@ -287,7 +326,7 @@ export default function BattlePage() {
     } else {
       setTimeout(() => setPhase("player_turn"), 800);
     }
-  }, [playerPokemon, enemyPokemon, phase, router]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playerPokemon, enemyPokemon, phase, router, trainerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBattleEnd = useCallback((
     finalPlayer: OwnedPokemon,
@@ -298,10 +337,24 @@ export default function BattlePage() {
     const newEvents: BattleEvent[] = [];
 
     if (battleWinner === "player") {
-      // Award XP to lead Pokemon
-      const xp = xpReward(finalEnemy.level, false);
-      const { state: newSave, result: levelResult } = playerState.awardBattleXp(savedState, 0, xp);
-      setSavedState(newSave);
+      const xp = xpReward(finalEnemy.level, !!trainerId);
+      const { state: withXp, result: levelResult } = playerState.awardBattleXp(savedState, 0, xp);
+
+      let finalSave = withXp;
+
+      // Award money for trainer battles
+      if (trainerId && moneyEarned > 0) {
+        finalSave = playerState.earnMoney(finalSave, moneyEarned);
+        const trainer = getTrainer(trainerId);
+        if (trainer) {
+          newEvents.push({
+            kind: "move_used",
+            text: t.game.trainerWon(trainer.name, moneyEarned),
+          });
+        }
+      }
+
+      setSave(finalSave);
 
       newEvents.push({ kind: "xp_gained", text: t.battle.xpGained(formatPokemonName(finalPlayer.nickname), xp), xp });
 
@@ -329,7 +382,7 @@ export default function BattlePage() {
     setEventLog((prev) => [...prev, ...newEvents]);
     setWinner(battleWinner);
     setTimeout(() => setPhase("battle_over"), 1200);
-  }, [savedState, t]);
+  }, [savedState, t, trainerId, moneyEarned]);
 
   // ─── Render states ──────────────────────────────────────────────
 
@@ -368,24 +421,43 @@ export default function BattlePage() {
     <div className="max-w-lg mx-auto px-4 py-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-gray-900">Battle!</h1>
-        <Link href="/party" className="text-sm text-gray-400 hover:text-gray-600">← Party</Link>
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Battle!</h1>
+          {trainerName && (
+            <p className="text-sm text-blue-600 font-medium">vs. {trainerName}</p>
+          )}
+        </div>
+        <Link href={trainerId ? "/shop" : "/party"} className="text-sm text-gray-400 hover:text-gray-600">
+          ← {trainerId ? "Shop" : "Party"}
+        </Link>
       </div>
+
+      {/* Trainer intro banner */}
+      {trainerAvatarId && (
+        <div className="flex items-center gap-3 mb-4 bg-blue-50 border border-blue-200 rounded-2xl p-3">
+          <img
+            src={POKEMON_SPRITE(trainerAvatarId)}
+            alt={trainerName ?? "Trainer"}
+            width={48}
+            height={48}
+            className="w-12 h-12 object-contain image-rendering-pixelated flex-shrink-0"
+          />
+          <div>
+            <div className="font-semibold text-blue-800 text-sm">{trainerName}</div>
+            <div className="text-xs text-blue-600">Reward: ₽{moneyEarned}</div>
+          </div>
+        </div>
+      )}
 
       {/* Arena */}
       <div className="bg-gradient-to-b from-sky-50 to-green-50 rounded-3xl border border-gray-200 p-6 mb-4">
         <div className="flex justify-between items-end">
-          {/* Enemy (top-right) */}
           <div className="flex-1 flex justify-end">
             <BattleCard pokemon={enemyPokemon} side="enemy" shaking={enemyShaking} />
           </div>
         </div>
-
-        {/* VS divider */}
         <div className="text-center my-2 text-2xl font-bold text-gray-200">—</div>
-
         <div className="flex justify-start">
-          {/* Player (bottom-left) */}
           <BattleCard pokemon={playerPokemon} side="player" shaking={playerShaking} />
         </div>
       </div>
@@ -411,22 +483,28 @@ export default function BattlePage() {
                 />
               ))}
             </div>
-            <button
-              onClick={handleFlee}
-              disabled={isAnimating}
-              className="w-full py-2 rounded-xl bg-gray-100 text-gray-500 font-semibold text-sm hover:bg-gray-200 transition-colors disabled:opacity-40"
-              type="button"
-            >
-              {t.battle.flee}
-            </button>
+            {/* Flee only available in wild battles */}
+            {!trainerId && (
+              <button
+                onClick={handleFlee}
+                disabled={isAnimating}
+                className="w-full py-2 rounded-xl bg-gray-100 text-gray-500 font-semibold text-sm hover:bg-gray-200 transition-colors disabled:opacity-40"
+                type="button"
+              >
+                {t.battle.flee}
+              </button>
+            )}
           </>
         )}
 
         {isBattleOver && (
           <div className="text-center py-4">
-            <p className={`text-xl font-bold mb-4 ${winner === "player" ? "text-green-600" : "text-red-500"}`}>
+            <p className={`text-xl font-bold mb-1 ${winner === "player" ? "text-green-600" : "text-red-500"}`}>
               {winner === "player" ? t.battle.playerWins : t.battle.enemyWins}
             </p>
+            {winner === "player" && moneyEarned > 0 && (
+              <p className="text-sm text-yellow-600 font-semibold mb-4">+₽{moneyEarned}</p>
+            )}
             <div className="flex gap-3 justify-center">
               <button
                 onClick={() => window.location.reload()}
@@ -436,15 +514,29 @@ export default function BattlePage() {
                 Battle Again!
               </button>
               <Link
-                href="/party"
+                href={trainerId ? "/shop" : "/party"}
                 className="px-6 py-2.5 bg-gray-100 text-gray-600 font-semibold rounded-full hover:bg-gray-200 transition-colors"
               >
-                Party
+                {trainerId ? "Shop" : "Party"}
               </Link>
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Main export (with Suspense boundary for useSearchParams) ─────────────────
+
+export default function BattlePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-10 h-10 border-4 border-red-200 border-t-red-500 rounded-full animate-spin" />
+      </div>
+    }>
+      <BattlePageInner />
+    </Suspense>
   );
 }

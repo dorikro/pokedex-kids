@@ -14,9 +14,15 @@ import { TYPE_EFFECTIVENESS } from "./constants";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "pokedex-kids-player";
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 3;   // bumped: added lastPokeballRegen
 const MAX_PARTY_SIZE = 6;
 const STARTER_POKEBALLS = 10;
+const STARTER_MONEY = 500;
+
+/** Passive regen: grant this many balls when the player runs dry. */
+const REGEN_BALL_AMOUNT = 10;
+/** Minimum real-world milliseconds between regen grants. */
+const REGEN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 // ─── XP & Stat calculations ───────────────────────────────────────────────────
 
@@ -386,13 +392,51 @@ function defaultState(): PlayerState {
     party: [],
     box: [],
     pokeballs: STARTER_POKEBALLS,
+    money: STARTER_MONEY,
+    inventory: [
+      { itemId: "pokeball", quantity: STARTER_POKEBALLS },
+      { itemId: "potion",   quantity: 3 },
+    ],
     badges: 0,
     seen: [],
     caught: [],
+    defeatedTrainers: [],
     currentAreaId: DEFAULT_AREA_ID,
+    lastPokeballRegen: new Date().toISOString(),
     lastSaved: new Date().toISOString(),
     saveVersion: SAVE_VERSION,
   };
+}
+
+/**
+ * Passive Pokéball regen check.
+ * If the player has 0 balls AND at least REGEN_INTERVAL_MS has passed
+ * since the last grant, silently award REGEN_BALL_AMOUNT balls and
+ * update the timestamp. Mutates state in-place so the caller can persist.
+ */
+function applyPokeballRegen(state: PlayerState): { state: PlayerState; granted: number } {
+  const ballCount = state.inventory.find((s) => s.itemId === "pokeball")?.quantity ?? state.pokeballs ?? 0;
+  if (ballCount > 0) return { state, granted: 0 };
+
+  const lastRegen = state.lastPokeballRegen ? new Date(state.lastPokeballRegen).getTime() : 0;
+  const elapsed = Date.now() - lastRegen;
+  if (elapsed < REGEN_INTERVAL_MS) return { state, granted: 0 };
+
+  // Grant the balls
+  const existing = state.inventory.find((s) => s.itemId === "pokeball");
+  const newInventory = existing
+    ? state.inventory.map((s) =>
+        s.itemId === "pokeball" ? { ...s, quantity: s.quantity + REGEN_BALL_AMOUNT } : s
+      )
+    : [...state.inventory, { itemId: "pokeball" as const, quantity: REGEN_BALL_AMOUNT }];
+
+  const next: PlayerState = {
+    ...state,
+    pokeballs: (state.pokeballs ?? 0) + REGEN_BALL_AMOUNT,
+    inventory: newInventory,
+    lastPokeballRegen: new Date().toISOString(),
+  };
+  return { state: next, granted: REGEN_BALL_AMOUNT };
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
@@ -403,6 +447,33 @@ function load(): PlayerState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw) as PlayerState;
+
+    // ── Migration: v1 → v2 (add money + inventory) ──────────────
+    if (!parsed.saveVersion || parsed.saveVersion < 2) {
+      parsed.money = parsed.money ?? STARTER_MONEY;
+      parsed.inventory = parsed.inventory ?? [
+        { itemId: "pokeball", quantity: parsed.pokeballs ?? STARTER_POKEBALLS },
+        { itemId: "potion",   quantity: 3 },
+      ];
+      parsed.defeatedTrainers = parsed.defeatedTrainers ?? [];
+      parsed.saveVersion = 2;
+    }
+
+    // ── Migration: v2 → v3 (add lastPokeballRegen) ──────────────
+    if (parsed.saveVersion < 3) {
+      parsed.lastPokeballRegen = parsed.lastPokeballRegen ?? new Date(0).toISOString();
+      parsed.saveVersion = 3;
+    }
+
+    // ── Passive regen check on every load ───────────────────────
+    const { state: regenState, granted } = applyPokeballRegen(parsed);
+    if (granted > 0) {
+      // Persist the grant immediately
+      regenState.lastSaved = new Date().toISOString();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(regenState));
+      return regenState;
+    }
+
     return parsed;
   } catch {
     return defaultState();
@@ -532,6 +603,83 @@ export const playerState = {
     save(next);
     return { state: next, result };
   },
+
+  // ─── Money ──────────────────────────────────────────────────────
+
+  /** Award prize money (e.g. after beating a trainer). */
+  earnMoney(state: PlayerState, amount: number): PlayerState {
+    const next: PlayerState = { ...state, money: state.money + amount };
+    save(next);
+    return next;
+  },
+
+  /** Spend money. Returns { ok: false } if insufficient funds. */
+  spendMoney(state: PlayerState, amount: number): { ok: boolean; state: PlayerState } {
+    if (state.money < amount) return { ok: false, state };
+    const next: PlayerState = { ...state, money: state.money - amount };
+    save(next);
+    return { ok: true, state: next };
+  },
+
+  // ─── Inventory ──────────────────────────────────────────────────
+
+  /** Add `quantity` of an item to the player's inventory. */
+  addItem(state: PlayerState, itemId: import("./types").ItemId, quantity: number): PlayerState {
+    const existing = state.inventory.find((s) => s.itemId === itemId);
+    const next: PlayerState = {
+      ...state,
+      inventory: existing
+        ? state.inventory.map((s) =>
+            s.itemId === itemId ? { ...s, quantity: s.quantity + quantity } : s
+          )
+        : [...state.inventory, { itemId, quantity }],
+      // Keep legacy pokeballs field in sync
+      pokeballs: itemId === "pokeball"
+        ? (state.pokeballs ?? 0) + quantity
+        : state.pokeballs,
+    };
+    save(next);
+    return next;
+  },
+
+  /** Consume one of an item. Returns { ok: false } if none left. */
+  useItem(state: PlayerState, itemId: import("./types").ItemId): { ok: boolean; state: PlayerState } {
+    const slot = state.inventory.find((s) => s.itemId === itemId);
+    if (!slot || slot.quantity <= 0) return { ok: false, state };
+    const next: PlayerState = {
+      ...state,
+      inventory: state.inventory.map((s) =>
+        s.itemId === itemId ? { ...s, quantity: s.quantity - 1 } : s
+      ).filter((s) => s.quantity > 0),
+      pokeballs: itemId === "pokeball"
+        ? Math.max(0, (state.pokeballs ?? 0) - 1)
+        : state.pokeballs,
+    };
+    save(next);
+    return { ok: true, state: next };
+  },
+
+  /** Get quantity of a specific item. */
+  itemCount(state: PlayerState, itemId: import("./types").ItemId): number {
+    return state.inventory.find((s) => s.itemId === itemId)?.quantity ?? 0;
+  },
+
+  // ─── Trainers ───────────────────────────────────────────────────
+
+  /** Mark a trainer as defeated. */
+  defeatTrainer(state: PlayerState, trainerId: string): PlayerState {
+    if (state.defeatedTrainers.includes(trainerId)) return state;
+    const next: PlayerState = {
+      ...state,
+      defeatedTrainers: [...state.defeatedTrainers, trainerId],
+    };
+    save(next);
+    return next;
+  },
+
   MAX_PARTY_SIZE,
   STARTER_POKEBALLS,
+  STARTER_MONEY,
+  REGEN_BALL_AMOUNT,
+  REGEN_INTERVAL_MS,
 };
