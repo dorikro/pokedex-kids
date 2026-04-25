@@ -131,6 +131,60 @@ export interface TranslationDictionary {
     rank: string;
     reset: string;
   };
+  // ─── Game / v0.2 ──────────────────────────────────────────────────
+  game: {
+    // Starter selection
+    starterTitle: string;
+    starterSubtitle: string;
+    starterChoose: string;
+    starterConfirm: string;
+    trainerNameLabel: string;
+    trainerNamePlaceholder: string;
+    // Party page
+    partyTitle: string;
+    partySubtitle: string;
+    partySlot: (n: number) => string;
+    partyEmpty: string;
+    boxTitle: string;
+    boxEmpty: string;
+    moveToBox: string;
+    moveToParty: string;
+    release: string;
+    releaseConfirm: (name: string) => string;
+    // Wild page
+    wildTitle: string;
+    wildSubtitle: string;
+    wildEncounter: (name: string) => string;
+    wildAppeared: (name: string) => string;
+    throwBall: string;
+    flee: string;
+    noPokeballsTitle: string;
+    noPokeballsText: string;
+    catchSuccess: (name: string) => string;
+    catchFail: string;
+    catchAdded: (name: string, location: string) => string;
+    catchBoxed: (name: string) => string;
+    partyFull: string;
+    pokeballsLeft: (n: number) => string;
+    // Wild encounter overlay (browsing page)
+    wildOverlayTitle: string;
+    wildOverlayText: (name: string) => string;
+    wildOverlayCatch: string;
+    wildOverlayIgnore: string;
+    // Stats / XP
+    level: string;
+    xp: string;
+    hp: string;
+    maxHp: string;
+    // Pokedex counts
+    seen: string;
+    caught: string;
+    // General
+    newGame: string;
+    newGameConfirm: string;
+    save: string;
+    back: string;
+  };
 }
 
 export const en: TranslationDictionary = {
@@ -339,5 +393,56 @@ export const en: TranslationDictionary = {
     noResults: "No Pokémon match these filters. Try widening the ranges!",
     rank: "#",
     reset: "Reset",
+  },
+
+  // ─── Game / v0.2 ─────────────────────────────────────────────────
+  game: {
+    starterTitle: "Choose Your Starter Pokémon!",
+    starterSubtitle: "Pick one of these three to begin your adventure.",
+    starterChoose: "Choose",
+    starterConfirm: "Start Adventure!",
+    trainerNameLabel: "Your Trainer Name",
+    trainerNamePlaceholder: "Enter your name...",
+    partyTitle: "My Party",
+    partySubtitle: "Your active Pokémon team",
+    partySlot: (n: number) => `Slot ${n}`,
+    partyEmpty: "Empty slot",
+    boxTitle: "PC Box",
+    boxEmpty: "Your PC box is empty.",
+    moveToBox: "Send to Box",
+    moveToParty: "Add to Party",
+    release: "Release",
+    releaseConfirm: (name: string) =>
+      `Are you sure you want to release ${name}? This cannot be undone.`,
+    wildTitle: "Wild Area",
+    wildSubtitle: "Walk through the tall grass and find wild Pokémon!",
+    wildEncounter: (name: string) => `A wild ${name} appeared!`,
+    wildAppeared: (name: string) => `${name} is waiting...`,
+    throwBall: "Throw Pokéball!",
+    flee: "Run Away",
+    noPokeballsTitle: "No Pokéballs!",
+    noPokeballsText: "You don't have any Pokéballs. You'll need to find more!",
+    catchSuccess: (name: string) => `Gotcha! ${name} was caught!`,
+    catchFail: "Oh no! The Pokémon broke free!",
+    catchAdded: (name: string, location: string) =>
+      `${name} was added to your party from ${location}!`,
+    catchBoxed: (name: string) =>
+      `Your party is full! ${name} was sent to your PC box.`,
+    partyFull: "Party is full! Send a Pokémon to the box first.",
+    pokeballsLeft: (n: number) => `${n} Pokéball${n === 1 ? "" : "s"} left`,
+    wildOverlayTitle: "Wild Pokémon!",
+    wildOverlayText: (name: string) => `A wild ${name} is nearby!`,
+    wildOverlayCatch: "Try to Catch!",
+    wildOverlayIgnore: "Ignore",
+    level: "Lv.",
+    xp: "XP",
+    hp: "HP",
+    maxHp: "Max HP",
+    seen: "Seen",
+    caught: "Caught",
+    newGame: "New Game",
+    newGameConfirm: "Start a new game? All progress will be lost!",
+    save: "Saved",
+    back: "Back",
   },
 };

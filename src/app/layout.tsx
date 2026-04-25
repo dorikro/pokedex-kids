@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import WildEncounterOverlay from "@/components/WildEncounterOverlay";
 import { LanguageProvider } from "@/lib/i18n/index";
 
 const geistSans = Geist({
@@ -25,6 +26,7 @@ export default function RootLayout({
         <LanguageProvider>
           <Navbar />
           <main className="flex-1">{children}</main>
+          <WildEncounterOverlay />
         </LanguageProvider>
       </body>
     </html>

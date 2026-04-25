@@ -11,6 +11,8 @@ export default function Navbar() {
 
   const links = [
     { href: "/", label: t.nav.browse },
+    { href: "/wild", label: "Wild" },
+    { href: "/party", label: "Party" },
     { href: "/battle", label: t.nav.battle },
     { href: "/stats", label: t.nav.stats },
     { href: "/about", label: t.nav.about },

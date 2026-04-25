@@ -157,3 +157,105 @@ export interface PokemonListApiResponse {
   limit: number;
   hasMore: boolean;
 }
+
+// ─── Game / v0.2 Types ────────────────────────────────────────────────
+
+/**
+ * A move that a Pokemon can use in battle.
+ * Seeded from PokeAPI in v0.2.1; for v0.2.0 we generate simplified moves.
+ */
+export interface GameMove {
+  id: number;
+  name: string;
+  type: string;
+  power: number | null;   // null for status moves
+  pp: number;
+  damageClass: "physical" | "special" | "status";
+}
+
+/**
+ * A Pokemon owned by the player.
+ * Wraps LocalPokemon data with player-specific state.
+ */
+export interface OwnedPokemon {
+  /** Unique instance ID (uuid) — one player can own multiple of the same species */
+  instanceId: string;
+  /** Pokedex ID of the species */
+  pokemonId: number;
+  /** Display name (species name by default, player can nickname in v0.3) */
+  nickname: string;
+  /** Current level (1–100) */
+  level: number;
+  /** Current XP within the current level */
+  xp: number;
+  /** XP needed to reach next level */
+  xpToNextLevel: number;
+  /** Current HP (can differ from max during/after battle) */
+  currentHp: number;
+  /** Calculated max HP based on base stat + level */
+  maxHp: number;
+  /** Calculated stats (attack, defense, etc.) adjusted for level */
+  stats: { name: string; value: number }[];
+  /** Up to 4 moves */
+  moves: (GameMove & { currentPp: number })[];
+  /** Species data snapshot (sprite, types, etc.) */
+  species: {
+    id: number;
+    name: string;
+    types: string[];
+    sprite: string | null;
+    artwork: string | null;
+    baseStats: { name: string; base_stat: number }[];
+    evolutionChain: { name: string; id: number; sprite: string | null }[];
+  };
+  /** Which area this Pokemon was caught in (or "starter") */
+  caughtInArea: string;
+  /** Date caught as ISO string */
+  caughtAt: string;
+}
+
+/**
+ * An area/zone of the world. Used for wild encounter level scaling.
+ * In v0.2.0 there is a single area ("pallet-town").
+ * In v0.3+ multiple areas unlock via the map as the player progresses.
+ */
+export interface Area {
+  id: string;
+  name: string;
+  /** Level range for wild Pokemon in this area */
+  levelRange: [number, number];
+  /** Pokemon IDs that can appear here (empty = any) */
+  availablePokemonIds: number[];
+  /** How many badges needed to access this area (0 = always open) */
+  requiredBadges: number;
+  /** Catch rate modifier (1 = normal, <1 = harder) */
+  catchRateModifier: number;
+}
+
+/**
+ * The full player save state stored in localStorage.
+ */
+export interface PlayerState {
+  /** Player's chosen trainer name */
+  trainerName: string;
+  /** Whether the player has completed starter selection */
+  hasStarted: boolean;
+  /** Pokemon in the active party (max 6) */
+  party: OwnedPokemon[];
+  /** Overflow Pokemon stored in PC box (no limit) */
+  box: OwnedPokemon[];
+  /** Number of Pokeballs the player has */
+  pokeballs: number;
+  /** Number of badges earned */
+  badges: number;
+  /** IDs of Pokemon species the player has seen (Pokedex) */
+  seen: number[];
+  /** IDs of Pokemon species the player has caught */
+  caught: number[];
+  /** Current area ID */
+  currentAreaId: string;
+  /** ISO timestamp of last save */
+  lastSaved: string;
+  /** Save format version — lets us migrate localStorage in future versions */
+  saveVersion: number;
+}
