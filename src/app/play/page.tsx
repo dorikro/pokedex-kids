@@ -215,7 +215,7 @@ export default function PlayPage() {
 
   // ─── Battle: start ─────────────────────────────────────────────
 
-  async function startBattle(mode: "wild" | "trainer", trainerId?: string) {
+  async function startBattle(mode: "wild" | "trainer", trainerId?: string, preloadedSpecies?: LocalPokemon | null, preloadedLevel?: number) {
     if (!save) return;
     const lead = save.party.find(p => p.currentHp > 0);
     if (!lead) { showFlash("All your Pokémon have fainted! Visit the Clinic first.", false); return; }
@@ -252,9 +252,17 @@ export default function PlayPage() {
       // Wild battle — also catchable
       isCatchable = true;
       const area = getArea(save.currentAreaId);
-      const wId = pickWildPokemonId(area);
-      const wLevel = pickWildLevel(area);
-      const wSpecies = await fetchPokemonDetail(String(wId));
+      let wSpecies: Awaited<ReturnType<typeof fetchPokemonDetail>>;
+      let wLevel: number;
+      if (preloadedSpecies && preloadedLevel != null) {
+        // Use the Pokémon the player already encountered in the wild tab
+        wSpecies = preloadedSpecies as unknown as Awaited<ReturnType<typeof fetchPokemonDetail>>;
+        wLevel = preloadedLevel;
+      } else {
+        const wId = pickWildPokemonId(area);
+        wLevel = pickWildLevel(area);
+        wSpecies = await fetchPokemonDetail(String(wId));
+      }
       enemyPokemon = buildWildBattlePokemon({ id: wSpecies.id, name: wSpecies.name, types: wSpecies.types, sprite: wSpecies.sprite, artwork: wSpecies.artwork, stats: wSpecies.stats }, wLevel);
     }
 
@@ -595,7 +603,7 @@ export default function PlayPage() {
 
           <div className="w-full space-y-2">
             <button
-              onClick={() => { setWildPhase("walk"); setWildSpecies(null); startBattle("wild"); }}
+              onClick={() => { const s = wildSpecies; const lv = wildLevel; setWildPhase("walk"); setWildSpecies(null); startBattle("wild", undefined, s, lv); }}
               className="w-full py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors"
             >
               ⚔️ Fight!
