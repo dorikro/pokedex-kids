@@ -303,5 +303,19 @@ export const he: TranslationDictionary = {
     itemUsed: (msg: string) => msg,
     // Pokéball regen
     regenNotice: (n: number) => `!קיבלת ${n} כדורי פוקה חינם`,
+    // Play page tabs
+    tabParty: "קבוצה",
+    tabWild: "שטח פרא",
+    tabTrainers: "מאמנים",
+    tabShop: "חנות",
+    tabClinic: "קליניקה",
+    // Clinic
+    clinicTitle: "קליניקת פוקמון",
+    clinicSubtitle: "רפא את כל הפוקמון שלך במחיר קבוע.",
+    clinicHeal: "רפא הכל",
+    clinicCost: (amount: number) => `עלות: ₽${amount}`,
+    clinicHealed: "כל הפוקמון רפאו!",
+    clinicNoMoney: "!אין מספיק כסף",
+    clinicAlreadyHealthy: "כל הפוקמון בריאים!",
   },
 };

@@ -299,12 +299,18 @@ function BattlePageInner() {
     setEnemyPokemon(result.enemyPokemon);
     setEventLog((prev) => [...prev, ...result.events]);
 
+    // Persist HP + PP after every turn so browser refresh doesn't lose progress
+    if (savedState) {
+      const mid = playerState.updatePokemon(savedState, result.playerPokemon);
+      setSave(mid);
+    }
+
     if (result.battleOver) {
       handleBattleEnd(result.playerPokemon, result.enemyPokemon, result.winner);
     } else {
       setTimeout(() => setPhase("player_turn"), 800);
     }
-  }, [playerPokemon, enemyPokemon, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playerPokemon, enemyPokemon, phase, savedState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFlee = useCallback(() => {
     if (!playerPokemon || !enemyPokemon || phase !== "player_turn") return;
@@ -317,6 +323,12 @@ function BattlePageInner() {
     setEnemyPokemon(result.enemyPokemon);
     setEventLog((prev) => [...prev, ...result.events]);
 
+    // Persist HP + PP on flee too
+    if (savedState) {
+      const mid = playerState.updatePokemon(savedState, result.playerPokemon);
+      setSave(mid);
+    }
+
     if (result.battleOver) {
       if (result.fled) {
         setTimeout(() => router.push("/wild"), 1000);
@@ -326,7 +338,7 @@ function BattlePageInner() {
     } else {
       setTimeout(() => setPhase("player_turn"), 800);
     }
-  }, [playerPokemon, enemyPokemon, phase, router, trainerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playerPokemon, enemyPokemon, phase, router, trainerId, savedState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBattleEnd = useCallback((
     finalPlayer: OwnedPokemon,
@@ -336,9 +348,13 @@ function BattlePageInner() {
     if (!savedState) return;
     const newEvents: BattleEvent[] = [];
 
+    // First: persist the battle-damaged HP + PP into the save.
+    // awardBattleXp reads from save.party[0], so we must update it first.
+    const stateWithBattleHp = playerState.updatePokemon(savedState, finalPlayer);
+
     if (battleWinner === "player") {
       const xp = xpReward(finalEnemy.level, !!trainerId);
-      const { state: withXp, result: levelResult } = playerState.awardBattleXp(savedState, 0, xp);
+      const { state: withXp, result: levelResult } = playerState.awardBattleXp(stateWithBattleHp, 0, xp);
 
       let finalSave = withXp;
 
@@ -377,6 +393,9 @@ function BattlePageInner() {
           evolutionTargetId: levelResult.evolutionTargetId,
         });
       }
+    } else {
+      // Loss: still persist the battle damage (pokemon stays fainted until healed)
+      setSave(stateWithBattleHp);
     }
 
     setEventLog((prev) => [...prev, ...newEvents]);

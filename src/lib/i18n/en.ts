@@ -229,6 +229,20 @@ export interface TranslationDictionary {
     itemUsed: (msg: string) => string;
     // Pokéball regen
     regenNotice: (n: number) => string;
+    // Play page tabs
+    tabParty: string;
+    tabWild: string;
+    tabTrainers: string;
+    tabShop: string;
+    tabClinic: string;
+    // Clinic
+    clinicTitle: string;
+    clinicSubtitle: string;
+    clinicHeal: string;
+    clinicCost: (amount: number) => string;
+    clinicHealed: string;
+    clinicNoMoney: string;
+    clinicAlreadyHealthy: string;
   };
 }
 
@@ -534,5 +548,19 @@ export const en: TranslationDictionary = {
     itemUsed: (msg: string) => msg,
     // Pokéball regen
     regenNotice: (n: number) => `You received ${n} free Pokéballs!`,
+    // Play page tabs
+    tabParty: "Party",
+    tabWild: "Wild",
+    tabTrainers: "Trainers",
+    tabShop: "Shop",
+    tabClinic: "Clinic",
+    // Clinic
+    clinicTitle: "Pokémon Clinic",
+    clinicSubtitle: "Heal all your Pokémon for a flat fee.",
+    clinicHeal: "Heal All",
+    clinicCost: (amount: number) => `Cost: ₽${amount}`,
+    clinicHealed: "All Pokémon healed!",
+    clinicNoMoney: "Not enough PokéDollars!",
+    clinicAlreadyHealthy: "All Pokémon are already healthy!",
   },
 };

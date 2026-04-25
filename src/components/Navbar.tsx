@@ -31,10 +31,7 @@ export default function Navbar() {
 
   const links = [
     { href: "/", label: t.nav.browse },
-    { href: "/wild", label: "Wild" },
-    { href: "/party", label: "Party" },
-    { href: "/shop", label: "Shop" },
-    { href: "/battle", label: t.nav.battle },
+    { href: "/play", label: "▶ Play" },
     { href: "/stats", label: t.nav.stats },
     { href: "/about", label: t.nav.about },
   ];
@@ -61,6 +58,7 @@ export default function Navbar() {
                 link.href === "/"
                   ? pathname === "/"
                   : pathname.startsWith(link.href);
+              const isPlay = link.href === "/play";
               return (
                 <Link
                   key={link.href}
@@ -68,6 +66,8 @@ export default function Navbar() {
                   className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
                     isActive
                       ? "bg-red-500 text-white"
+                      : isPlay
+                      ? "bg-green-500 text-white hover:bg-green-600"
                       : "text-gray-600 hover:bg-gray-100"
                   }`}
                 >

@@ -14,7 +14,7 @@ import { TYPE_EFFECTIVENESS } from "./constants";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "pokedex-kids-player";
-const SAVE_VERSION = 3;   // bumped: added lastPokeballRegen
+const SAVE_VERSION = 4;   // bumped: healAll + PP persistence
 const MAX_PARTY_SIZE = 6;
 const STARTER_POKEBALLS = 10;
 const STARTER_MONEY = 500;
@@ -303,13 +303,21 @@ export function createOwnedPokemon(
 
 /**
  * Upgrade an OwnedPokemon's move set from seeded move data.
- * Called after the moves API loads — replaces synthetic moves with real ones.
+ * Preserves currentPp for moves the pokemon already knows (identified by ID).
+ * Only resets PP to full for genuinely new moves.
  */
 export function applyRealMoves(
   pokemon: OwnedPokemon,
   seedMoves: { id: number; name: string; type: string; power: number | null; pp: number; damageClass: string; learnLevel: number }[]
 ): OwnedPokemon {
   if (!seedMoves || seedMoves.length === 0) return pokemon;
+
+  // Build map of existing PP by move ID to preserve mid-battle state
+  const existingPpById: Record<number, number> = {};
+  for (const m of pokemon.moves) {
+    if (m.id !== 0) existingPpById[m.id] = m.currentPp;
+  }
+
   const moves = seedMoves.slice(0, 4).map((m) => ({
     id: m.id,
     name: m.name,
@@ -317,7 +325,8 @@ export function applyRealMoves(
     power: m.power,
     pp: m.pp,
     damageClass: m.damageClass as "physical" | "special" | "status",
-    currentPp: m.pp,
+    // Preserve PP if this move was already known; otherwise give full PP
+    currentPp: existingPpById[m.id] !== undefined ? existingPpById[m.id] : m.pp,
   }));
   return { ...pokemon, moves };
 }
@@ -463,6 +472,11 @@ function load(): PlayerState {
     if (parsed.saveVersion < 3) {
       parsed.lastPokeballRegen = parsed.lastPokeballRegen ?? new Date(0).toISOString();
       parsed.saveVersion = 3;
+    }
+
+    // ── Migration: v3 → v4 (no data change, just version bump) ──
+    if (parsed.saveVersion < 4) {
+      parsed.saveVersion = 4;
     }
 
     // ── Passive regen check on every load ───────────────────────
@@ -675,6 +689,29 @@ export const playerState = {
     };
     save(next);
     return next;
+  },
+
+  // ─── Pokémon Clinic ─────────────────────────────────────────────
+
+  /**
+   * Heal all party Pokémon to full HP and restore all PP.
+   * Deducts `cost` PokéDollars. Returns { ok: false } if insufficient funds.
+   * Pass cost = 0 for free healing.
+   */
+  healAll(state: PlayerState, cost: number): { ok: boolean; state: PlayerState } {
+    if (cost > 0 && state.money < cost) return { ok: false, state };
+    const healed = state.party.map((p) => ({
+      ...p,
+      currentHp: p.maxHp,
+      moves: p.moves.map((m) => ({ ...m, currentPp: m.pp })),
+    }));
+    const next: PlayerState = {
+      ...state,
+      party: healed,
+      money: cost > 0 ? state.money - cost : state.money,
+    };
+    save(next);
+    return { ok: true, state: next };
   },
 
   MAX_PARTY_SIZE,
