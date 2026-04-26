@@ -388,9 +388,13 @@ export function calculateDamage(
   const baseDamage =
     (((2 * attackerLevel) / 5 + 2) * movePower * (atk / def)) / 50 + 2;
 
+  // Kids game balance scalar — without this, high-power moves one-shot at low levels.
+  // 0.45 means ~4–6 turns per battle even with type advantage.
+  const DAMAGE_SCALE = 0.45;
+
   const damage = Math.max(
     1,
-    Math.round(baseDamage * typeMultiplier * critMultiplier * random)
+    Math.round(baseDamage * typeMultiplier * critMultiplier * random * DAMAGE_SCALE)
   );
 
   return { damage, typeMultiplier, isCritical, effectiveness };
